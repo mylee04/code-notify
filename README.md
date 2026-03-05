@@ -61,6 +61,14 @@ brew install code-notify
 cn on
 ```
 
+**macOS (Homebrew, Already Installed)**
+
+```bash
+brew update
+brew upgrade code-notify
+code-notify version
+```
+
 **Linux / WSL**
 
 ```bash
