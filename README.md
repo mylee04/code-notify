@@ -19,7 +19,7 @@ Desktop notifications for AI coding tools - get alerts when tasks complete or in
 
 ---
 
-## What's New in v1.5.0
+## What's New in v1.6.0
 
 **Sound Notifications** - Play custom sounds when tasks complete (separate from voice TTS)
 
