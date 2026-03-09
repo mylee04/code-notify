@@ -288,14 +288,24 @@ show_status() {
     local alert_types=$(get_notify_types)
     echo "  ${BELL} Alert types: ${CYAN}$alert_types${RESET}"
 
-    # Terminal notifier status (macOS)
-    if [[ "$(detect_os)" == "macos" ]]; then
+    # Notification tool status (platform-specific)
+    local current_os
+    current_os="$(detect_os)"
+    if [[ "$current_os" == "macos" ]]; then
         echo ""
         if detect_terminal_notifier &> /dev/null; then
             echo "  ${CHECK_MARK} terminal-notifier: ${GREEN}INSTALLED${RESET}"
         else
             echo "  ${WARNING} terminal-notifier: ${YELLOW}NOT INSTALLED${RESET}"
             echo "     Install with: ${CYAN}brew install terminal-notifier${RESET}"
+        fi
+    elif [[ "$current_os" == "linux" ]]; then
+        echo ""
+        if command -v notify-send &> /dev/null; then
+            echo "  ${CHECK_MARK} notify-send: ${GREEN}INSTALLED${RESET}"
+        else
+            echo "  ${WARNING} notify-send: ${YELLOW}NOT INSTALLED${RESET}"
+            echo "     Install with: ${CYAN}sudo apt install libnotify-bin${RESET} or ${CYAN}sudo dnf install libnotify${RESET}"
         fi
     fi
 
@@ -390,7 +400,7 @@ run_setup_wizard() {
                 rm -f wsl-notify-send.zip
             fi
         fi
-    else
+    elif [[ "$(detect_os)" == "macos" ]]; then
         # Check terminal-notifier (macOS)
         if detect_terminal_notifier &> /dev/null; then
             success "terminal-notifier is installed"
@@ -411,6 +421,61 @@ run_setup_wizard() {
                     error "Failed to install terminal-notifier"
                     info "You can install it manually later"
                 fi
+            fi
+        fi
+    else
+        # Check notify-send (Linux)
+        if command -v notify-send &> /dev/null; then
+            success "notify-send is installed"
+        else
+            warning "notify-send not found"
+            echo ""
+            echo "For desktop notifications, install libnotify:"
+            if command -v apt &> /dev/null; then
+                echo "  ${CYAN}sudo apt install libnotify-bin${RESET}"
+                echo ""
+                read -p "Would you like to install it now? (y/n) " -n 1 -r
+                echo
+                if [[ $REPLY =~ ^[Yy]$ ]]; then
+                    info "Installing libnotify-bin..."
+                    if sudo apt install -y libnotify-bin; then
+                        success "notify-send installed successfully"
+                    else
+                        error "Failed to install libnotify-bin"
+                        info "You can install it manually later"
+                    fi
+                fi
+            elif command -v dnf &> /dev/null; then
+                echo "  ${CYAN}sudo dnf install libnotify${RESET}"
+                echo ""
+                read -p "Would you like to install it now? (y/n) " -n 1 -r
+                echo
+                if [[ $REPLY =~ ^[Yy]$ ]]; then
+                    info "Installing libnotify..."
+                    if sudo dnf install -y libnotify; then
+                        success "notify-send installed successfully"
+                    else
+                        error "Failed to install libnotify"
+                        info "You can install it manually later"
+                    fi
+                fi
+            elif command -v pacman &> /dev/null; then
+                echo "  ${CYAN}sudo pacman -S libnotify${RESET}"
+                echo ""
+                read -p "Would you like to install it now? (y/n) " -n 1 -r
+                echo
+                if [[ $REPLY =~ ^[Yy]$ ]]; then
+                    info "Installing libnotify..."
+                    if sudo pacman -S --noconfirm libnotify; then
+                        success "notify-send installed successfully"
+                    else
+                        error "Failed to install libnotify"
+                        info "You can install it manually later"
+                    fi
+                fi
+            else
+                echo "  Install libnotify using your distro's package manager"
+                info "Alternatively, zenity can be used as a fallback"
             fi
         fi
     fi
@@ -443,7 +508,17 @@ check_for_updates() {
     # This would normally check GitHub releases API
     # For now, just show how to update
     echo "To update code-notify, run:"
-    echo "  ${CYAN}brew upgrade code-notify${RESET}"
+    case "$(detect_os)" in
+        macos)
+            echo "  ${CYAN}brew upgrade code-notify${RESET}"
+            ;;
+        linux|wsl)
+            echo "  ${CYAN}curl -fsSL https://raw.githubusercontent.com/anthropics/code-notify/main/install.sh | bash${RESET}"
+            ;;
+        *)
+            echo "  See: ${CYAN}https://github.com/anthropics/code-notify${RESET}"
+            ;;
+    esac
 }
 
 # Handle voice commands
