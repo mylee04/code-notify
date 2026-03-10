@@ -316,7 +316,27 @@ case "$OS" in
         fi
         ;;
     wsl)
-        send_linux_notification
+        # Send Windows toast notification via wsl-notify-send.exe
+        # Windows requires toast notifications to use an AppUserModelID registered via a Start Menu
+        # shortcut. Without a registered appId, toasts may not appear or only show in Action Center.
+        # We borrow the terminal's appId since it's already registered and has banner permissions.
+        if command -v wsl-notify-send.exe &> /dev/null; then
+            WSL_APP_ID=""
+            # Detect terminal app ID from environment
+            if [[ "${WT_SESSION:-}" != "" ]]; then
+                # Running inside Windows Terminal
+                WSL_APP_ID="Microsoft.WindowsTerminal_8wekyb3d8bbwe!App"
+            fi
+            # Strip non-ASCII (emojis corrupt the XML toast template inside wsl-notify-send.exe)
+            # wsl-notify-send.exe only accepts ONE positional arg; two args prints usage and exits
+            WSL_TITLE=$(echo "$TITLE" | LC_ALL=C sed 's/[^\x20-\x7E]//g; s/  */ /g; s/^ *//; s/ *$//')
+            WSL_MESSAGE=$(echo "$MESSAGE" | LC_ALL=C sed 's/[^\x20-\x7E]//g; s/  */ /g; s/^ *//; s/ *$//')
+            WSL_NOTIFY_ARGS=(--appId "${WSL_APP_ID:-wsl-notify-send}" -c "$WSL_TITLE")
+            wsl-notify-send.exe "${WSL_NOTIFY_ARGS[@]}" "$WSL_MESSAGE" 2>/dev/null
+        else
+            # Fallback to notify-send (only works if WSLg is active)
+            send_linux_notification
+        fi
         # Sound notification if enabled
         if should_play_sound; then
             play_sound
