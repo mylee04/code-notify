@@ -331,8 +331,15 @@ case "$OS" in
             # wsl-notify-send.exe only accepts ONE positional arg; two args prints usage and exits
             WSL_TITLE=$(echo "$TITLE" | LC_ALL=C sed 's/[^\x20-\x7E]//g; s/  */ /g; s/^ *//; s/ *$//')
             WSL_MESSAGE=$(echo "$MESSAGE" | LC_ALL=C sed 's/[^\x20-\x7E]//g; s/  */ /g; s/^ *//; s/ *$//')
+            # Add project name and branch to body
+            WSL_BRANCH=$(git -C "$PWD" branch --show-current 2>/dev/null || true)
+            WSL_PROJECT="$PROJECT_NAME"
+            if [[ -n "$WSL_BRANCH" ]]; then
+                WSL_PROJECT="$WSL_PROJECT ($WSL_BRANCH)"
+            fi
             WSL_NOTIFY_ARGS=(--appId "${WSL_APP_ID:-wsl-notify-send}" -c "$WSL_TITLE")
-            wsl-notify-send.exe "${WSL_NOTIFY_ARGS[@]}" "$WSL_MESSAGE" 2>/dev/null
+            WSL_BODY=$(printf '%s\n%s' "$WSL_PROJECT" "$WSL_MESSAGE")
+            wsl-notify-send.exe "${WSL_NOTIFY_ARGS[@]}" "$WSL_BODY" 2>/dev/null
         else
             # Fallback to notify-send (only works if WSLg is active)
             send_linux_notification
