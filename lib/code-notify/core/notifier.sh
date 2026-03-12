@@ -230,6 +230,11 @@ send_linux_notification() {
     fi
 }
 
+# Strip non-ASCII characters before sending toast text to wsl-notify-send.exe.
+sanitize_wsl_text() {
+    printf '%s' "$1" | LC_ALL=C sed 's/[^\x20-\x7E]//g; s/  */ /g; s/^ *//; s/ *$//'
+}
+
 # Function to send notification on Windows
 send_windows_notification() {
     if command -v powershell &> /dev/null; then
@@ -329,11 +334,11 @@ case "$OS" in
             fi
             # Strip non-ASCII (emojis corrupt the XML toast template inside wsl-notify-send.exe)
             # wsl-notify-send.exe only accepts ONE positional arg; two args prints usage and exits
-            WSL_TITLE=$(echo "$TITLE" | LC_ALL=C sed 's/[^\x20-\x7E]//g; s/  */ /g; s/^ *//; s/ *$//')
-            WSL_MESSAGE=$(echo "$MESSAGE" | LC_ALL=C sed 's/[^\x20-\x7E]//g; s/  */ /g; s/^ *//; s/ *$//')
+            WSL_TITLE=$(sanitize_wsl_text "$TITLE")
+            WSL_MESSAGE=$(sanitize_wsl_text "$MESSAGE")
             # Add project name and branch to body
-            WSL_BRANCH=$(git -C "$PWD" branch --show-current 2>/dev/null || true)
-            WSL_PROJECT="$PROJECT_NAME"
+            WSL_BRANCH=$(sanitize_wsl_text "$(git -C "$PWD" branch --show-current 2>/dev/null || true)")
+            WSL_PROJECT=$(sanitize_wsl_text "$PROJECT_NAME")
             if [[ -n "$WSL_BRANCH" ]]; then
                 WSL_PROJECT="$WSL_PROJECT ($WSL_BRANCH)"
             fi
