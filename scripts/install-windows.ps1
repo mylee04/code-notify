@@ -250,7 +250,8 @@ function Send-SoundNotification {
     try {
         $player = New-Object System.Media.SoundPlayer
         $player.SoundLocation = $soundFile
-        $player.Play()
+        # Hooks run in short-lived PowerShell processes, so async playback can be cut off on exit.
+        $player.PlaySync()
     } catch {
         # Silently fail if sound cannot be played
     }
@@ -1083,7 +1084,8 @@ function Send-SoundNotificationLocal {
     try {
         $player = New-Object System.Media.SoundPlayer
         $player.SoundLocation = $soundFile
-        $player.Play()
+        # Keep the process alive until playback starts and completes.
+        $player.PlaySync()
     } catch {
         # Silently fail if sound cannot be played
     }
