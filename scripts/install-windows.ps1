@@ -982,13 +982,15 @@ function Send-DesktopNotification {
         return
     }
 
-    # Fallback to native Windows toast with activation
+    # Fallback to native Windows toast.
+    # Foreground activation requires extra registration that a standalone script does not provide,
+    # so keep the WinRT path simple and reliable here.
     try {
         [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
         [Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] | Out-Null
 
         $template = @"
-<toast activationType="foreground" launch="code-notify:activate">
+<toast>
     <visual>
         <binding template="ToastText02">
             <text id="1">$Title</text>
@@ -1001,14 +1003,6 @@ function Send-DesktopNotification {
         $xml = New-Object Windows.Data.Xml.Dom.XmlDocument
         $xml.LoadXml($template)
         $toast = New-Object Windows.UI.Notifications.ToastNotification $xml
-
-        # Register activation handler
-        if ($terminalHandle) {
-            $toast.add_Activated({
-                Set-WindowForeground -WindowHandle $terminalHandle
-            }.GetNewClosure())
-        }
-
         [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("Code-Notify").Show($toast)
     }
     catch {
