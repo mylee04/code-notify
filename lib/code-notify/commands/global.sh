@@ -299,6 +299,17 @@ show_status() {
             echo "  ${WARNING} terminal-notifier: ${YELLOW}NOT INSTALLED${RESET}"
             echo "     Install with: ${CYAN}brew install terminal-notifier${RESET}"
         fi
+    elif [[ "$current_os" == "wsl" ]]; then
+        echo ""
+        if detect_wsl_notify_send &> /dev/null; then
+            echo "  ${CHECK_MARK} wsl-notify-send.exe: ${GREEN}INSTALLED${RESET}"
+        else
+            echo "  ${WARNING} wsl-notify-send.exe: ${YELLOW}NOT INSTALLED${RESET}"
+            echo "     Install to enable Windows toast notifications in WSL"
+        fi
+        if command -v notify-send &> /dev/null; then
+            echo "  ${CHECK_MARK} notify-send: ${GREEN}INSTALLED${RESET} (WSLg fallback)"
+        fi
     elif [[ "$current_os" == "linux" ]]; then
         echo ""
         if command -v notify-send &> /dev/null; then

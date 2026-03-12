@@ -53,7 +53,11 @@ detect_os() {
             echo "macos"
             ;;
         Linux*)
-            echo "linux"
+            if grep -qi microsoft /proc/version 2>/dev/null; then
+                echo "wsl"
+            else
+                echo "linux"
+            fi
             ;;
         CYGWIN*|MINGW*|MSYS*)
             echo "windows"

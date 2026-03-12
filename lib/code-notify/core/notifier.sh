@@ -230,6 +230,11 @@ send_linux_notification() {
     fi
 }
 
+# Strip non-ASCII characters before sending toast text to wsl-notify-send.exe.
+sanitize_wsl_text() {
+    printf '%s' "$1" | LC_ALL=C sed 's/[^\x20-\x7E]//g; s/  */ /g; s/^ *//; s/ *$//'
+}
+
 # Function to send notification on Windows
 send_windows_notification() {
     if command -v powershell &> /dev/null; then
@@ -316,7 +321,34 @@ case "$OS" in
         fi
         ;;
     wsl)
-        send_linux_notification
+        # Send Windows toast notification via wsl-notify-send.exe
+        # Windows requires toast notifications to use an AppUserModelID registered via a Start Menu
+        # shortcut. Without a registered appId, toasts may not appear or only show in Action Center.
+        # We borrow the terminal's appId since it's already registered and has banner permissions.
+        if command -v wsl-notify-send.exe &> /dev/null; then
+            WSL_APP_ID=""
+            # Detect terminal app ID from environment
+            if [[ "${WT_SESSION:-}" != "" ]]; then
+                # Running inside Windows Terminal
+                WSL_APP_ID="Microsoft.WindowsTerminal_8wekyb3d8bbwe!App"
+            fi
+            # Strip non-ASCII (emojis corrupt the XML toast template inside wsl-notify-send.exe)
+            # wsl-notify-send.exe only accepts ONE positional arg; two args prints usage and exits
+            WSL_TITLE=$(sanitize_wsl_text "$TITLE")
+            WSL_MESSAGE=$(sanitize_wsl_text "$MESSAGE")
+            # Add project name and branch to body
+            WSL_BRANCH=$(sanitize_wsl_text "$(git -C "$PWD" branch --show-current 2>/dev/null || true)")
+            WSL_PROJECT=$(sanitize_wsl_text "$PROJECT_NAME")
+            if [[ -n "$WSL_BRANCH" ]]; then
+                WSL_PROJECT="$WSL_PROJECT ($WSL_BRANCH)"
+            fi
+            WSL_NOTIFY_ARGS=(--appId "${WSL_APP_ID:-wsl-notify-send}" -c "$WSL_TITLE")
+            WSL_BODY=$(printf '%s\n%s' "$WSL_PROJECT" "$WSL_MESSAGE")
+            wsl-notify-send.exe "${WSL_NOTIFY_ARGS[@]}" "$WSL_BODY" 2>/dev/null
+        else
+            # Fallback to notify-send (only works if WSLg is active)
+            send_linux_notification
+        fi
         # Sound notification if enabled
         if should_play_sound; then
             play_sound
