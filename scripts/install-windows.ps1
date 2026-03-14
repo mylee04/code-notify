@@ -113,12 +113,43 @@ $script:VoiceFile = "$script:NotificationsDir\voice-enabled"
 $script:SoundEnabledFile = "$script:NotificationsDir\sound-enabled"
 $script:SoundCustomFile = "$script:NotificationsDir\sound-custom"
 $script:DefaultSoundFile = "C:\Windows\Media\chimes.wav"
+$script:CodexHome = "$env:USERPROFILE\.codex"
+$script:CodexConfigFile = "$script:CodexHome\config.toml"
+$script:GeminiHome = "$env:USERPROFILE\.gemini"
+$script:GeminiSettingsFile = "$script:GeminiHome\settings.json"
 
 # Helper functions for colored output
 function Write-Success { param([string]$Message) Write-Host "[OK] $Message" -ForegroundColor Green }
 function Write-Info { param([string]$Message) Write-Host "[i] $Message" -ForegroundColor Cyan }
 function Write-Warning { param([string]$Message) Write-Host "[!] $Message" -ForegroundColor Yellow }
 function Write-Header { param([string]$Message) Write-Host "`n$Message" -ForegroundColor White }
+
+function Get-ToolDisplayName {
+    param([string]$Tool = "claude")
+
+    switch ($Tool.ToLower()) {
+        "codex" { return "Codex" }
+        "gemini" { return "Gemini" }
+        default { return "Claude Code" }
+    }
+}
+
+function Backup-ConfigFile {
+    param([string]$Path)
+
+    if (-not (Test-Path $Path)) {
+        return
+    }
+
+    $backupDir = "$env:USERPROFILE\.config\code-notify\backups"
+    if (-not (Test-Path $backupDir)) {
+        New-Item -ItemType Directory -Path $backupDir -Force | Out-Null
+    }
+
+    $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
+    $safeName = [System.IO.Path]::GetFileName($Path)
+    Copy-Item $Path (Join-Path $backupDir "$safeName.$timestamp.bak") -ErrorAction SilentlyContinue
+}
 
 function Test-GitInstalled {
     $null = Get-Command git -ErrorAction SilentlyContinue
@@ -389,158 +420,349 @@ function Get-NotifyScript {
 }
 
 function Test-NotificationsEnabled {
-    if (-not (Test-Path $script:SettingsFile)) {
-        return $false
-    }
+    param(
+        [string]$Tool = "claude",
+        [switch]$Project
+    )
 
-    $settings = Get-Content $script:SettingsFile -Raw | ConvertFrom-Json -ErrorAction SilentlyContinue
-    return ($null -ne $settings.hooks)
+    switch ($Tool.ToLower()) {
+        "codex" {
+            if ($Project -or -not (Test-Path $script:CodexConfigFile)) {
+                return $false
+            }
+
+            return [bool](Select-String -Path $script:CodexConfigFile -Pattern '^\s*notify\s*=' -Quiet)
+        }
+        "gemini" {
+            if ($Project -or -not (Test-Path $script:GeminiSettingsFile)) {
+                return $false
+            }
+
+            $settings = Get-Content $script:GeminiSettingsFile -Raw | ConvertFrom-Json -ErrorAction SilentlyContinue
+            return ($settings -and $settings.hooks -and (($null -ne $settings.hooks.Notification) -or ($null -ne $settings.hooks.AfterAgent)))
+        }
+        default {
+            if ($Project) {
+                $projectRoot = Get-ProjectRoot
+                $settingsFile = Join-Path $projectRoot ".claude\settings.json"
+            } else {
+                $settingsFile = $script:SettingsFile
+            }
+
+            if (-not (Test-Path $settingsFile)) {
+                return $false
+            }
+
+            $settings = Get-Content $settingsFile -Raw | ConvertFrom-Json -ErrorAction SilentlyContinue
+            return ($null -ne $settings.hooks)
+        }
+    }
 }
 
 function Enable-Notifications {
-    param([switch]$Project)
+    param(
+        [switch]$Project,
+        [string]$Tool = "claude"
+    )
 
-    $projectName = Get-ProjectName
+    $tool = $Tool.ToLower()
     $notifyScript = Get-NotifyScript
+    $toolDisplay = Get-ToolDisplayName $tool
 
-    if ($Project) {
-        $projectRoot = Get-ProjectRoot
-        $settingsFile = Join-Path $projectRoot ".claude\settings.json"
-        $claudeDir = Join-Path $projectRoot ".claude"
-
-        Write-Host "[>] Enabling notifications for project: $projectName" -ForegroundColor Cyan
-
-        if (-not (Test-Path $claudeDir)) {
-            New-Item -ItemType Directory -Path $claudeDir -Force | Out-Null
-        }
-    } else {
-        $settingsFile = $script:SettingsFile
-        Write-Host "[>] Enabling notifications globally" -ForegroundColor Cyan
-    }
-
-    # Backup existing settings
-    if (Test-Path $settingsFile) {
-        $backupDir = "$env:USERPROFILE\.config\code-notify\backups"
-        if (-not (Test-Path $backupDir)) {
-            New-Item -ItemType Directory -Path $backupDir -Force | Out-Null
-        }
-        $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
-        Copy-Item $settingsFile "$backupDir\settings.$timestamp.json" -ErrorAction SilentlyContinue
-    }
-
-    # Create settings with hooks
-    $settings = @{
-        hooks = @{
-            Notification = @(
-                @{
-                    matcher = ""
-                    hooks = @(
-                        @{
-                            type = "command"
-                            command = "powershell -ExecutionPolicy Bypass -File `"$notifyScript`" notification"
-                        }
-                    )
-                }
-            )
-            Stop = @(
-                @{
-                    matcher = ""
-                    hooks = @(
-                        @{
-                            type = "command"
-                            command = "powershell -ExecutionPolicy Bypass -File `"$notifyScript`" stop"
-                        }
-                    )
-                }
-            )
-        }
-    }
-
-    # Merge with existing settings if present
-    if (Test-Path $settingsFile) {
-        $existingSettings = Get-Content $settingsFile -Raw | ConvertFrom-Json -ErrorAction SilentlyContinue
-        if ($existingSettings) {
-            # Preserve other settings like model
-            $existingSettings.PSObject.Properties | ForEach-Object {
-                if ($_.Name -ne "hooks") {
-                    $settings[$_.Name] = $_.Value
-                }
-            }
-        }
-    }
-
-    # Ensure parent directory exists
-    $parentDir = Split-Path $settingsFile -Parent
-    if (-not (Test-Path $parentDir)) {
-        New-Item -ItemType Directory -Path $parentDir -Force | Out-Null
-    }
-
-    $settings | ConvertTo-Json -Depth 10 | Set-Content $settingsFile -Encoding UTF8
-
-    Write-Success "Notifications enabled!"
-    Write-Info "Config: $settingsFile"
-
-    # Test notification
-    Send-Notification -Title "Code-Notify" -Message "Notifications enabled!" -Type "success"
-}
-
-function Disable-Notifications {
-    param([switch]$Project)
-
-    if ($Project) {
-        $projectRoot = Get-ProjectRoot
-        $settingsFile = Join-Path $projectRoot ".claude\settings.json"
-        Write-Host "[>] Disabling notifications for project" -ForegroundColor Cyan
-    } else {
-        $settingsFile = $script:SettingsFile
-        Write-Host "[>] Disabling notifications globally" -ForegroundColor Cyan
-    }
-
-    if (-not (Test-Path $settingsFile)) {
-        Write-Warning "Notifications are already disabled"
+    if ($Project -and $tool -ne "claude") {
+        Write-Warning "Project notifications on Windows are only supported for Claude right now"
         return
     }
 
-    $settings = Get-Content $settingsFile -Raw | ConvertFrom-Json -ErrorAction SilentlyContinue
-    if ($settings -and $settings.hooks) {
-        $settings.PSObject.Properties.Remove("hooks")
-        $settings | ConvertTo-Json -Depth 10 | Set-Content $settingsFile -Encoding UTF8
-        Write-Success "Notifications disabled!"
-    } else {
-        Write-Warning "Notifications were not enabled"
+    switch ($tool) {
+        "codex" {
+            Write-Host "[>] Enabling Codex notifications globally" -ForegroundColor Cyan
+            New-Item -ItemType Directory -Path $script:CodexHome -Force | Out-Null
+            Backup-ConfigFile $script:CodexConfigFile
+
+            $escapedNotifyScript = $notifyScript -replace '\\', '\\\\'
+            $notifyLine = 'notify = ["powershell", "-ExecutionPolicy", "Bypass", "-File", "' + $escapedNotifyScript + '", "stop", "codex"]'
+            $content = @()
+
+            if (Test-Path $script:CodexConfigFile) {
+                $content = @(Get-Content $script:CodexConfigFile | Where-Object {
+                    $_ -notmatch '^\s*# Code-Notify: Desktop notifications' -and $_ -notmatch '^\s*notify\s*='
+                })
+            } else {
+                $content += "# Codex CLI Configuration"
+                $content += "# https://developers.openai.com/codex/config-reference/"
+            }
+
+            if ($content.Count -gt 0) {
+                $content += ""
+            }
+            $content += "# Code-Notify: Desktop notifications"
+            $content += $notifyLine
+
+            $content | Set-Content $script:CodexConfigFile -Encoding UTF8
+            Write-Success "Codex notifications enabled!"
+            Write-Info "Config: $script:CodexConfigFile"
+            Send-Notification -Title "Code-Notify" -Message "Codex notifications enabled!" -Type "success"
+            return
+        }
+        "gemini" {
+            Write-Host "[>] Enabling Gemini notifications globally" -ForegroundColor Cyan
+            New-Item -ItemType Directory -Path $script:GeminiHome -Force | Out-Null
+            Backup-ConfigFile $script:GeminiSettingsFile
+
+            $settings = $null
+            if (Test-Path $script:GeminiSettingsFile) {
+                $settings = Get-Content $script:GeminiSettingsFile -Raw | ConvertFrom-Json -ErrorAction SilentlyContinue
+            }
+            if (-not $settings) {
+                $settings = [PSCustomObject]@{}
+            }
+            if (-not $settings.PSObject.Properties['tools']) {
+                $settings | Add-Member -NotePropertyName tools -NotePropertyValue ([PSCustomObject]@{})
+            }
+            if (-not $settings.PSObject.Properties['hooks']) {
+                $settings | Add-Member -NotePropertyName hooks -NotePropertyValue ([PSCustomObject]@{})
+            }
+
+            $settings.tools | Add-Member -Force -NotePropertyName enableHooks -NotePropertyValue $true
+            $settings.hooks | Add-Member -Force -NotePropertyName enabled -NotePropertyValue $true
+            $settings.hooks | Add-Member -Force -NotePropertyName Notification -NotePropertyValue @(
+                @{
+                    matcher = ""
+                    hooks = @(
+                        @{
+                            name = "code-notify-notification"
+                            type = "command"
+                            command = "powershell -ExecutionPolicy Bypass -File `"$notifyScript`" notification gemini"
+                            description = "Desktop notification when input needed"
+                        }
+                    )
+                }
+            )
+            $settings.hooks | Add-Member -Force -NotePropertyName AfterAgent -NotePropertyValue @(
+                @{
+                    matcher = ""
+                    hooks = @(
+                        @{
+                            name = "code-notify-complete"
+                            type = "command"
+                            command = "powershell -ExecutionPolicy Bypass -File `"$notifyScript`" stop gemini"
+                            description = "Desktop notification when task complete"
+                        }
+                    )
+                }
+            )
+
+            $settings | ConvertTo-Json -Depth 10 | Set-Content $script:GeminiSettingsFile -Encoding UTF8
+            Write-Success "Gemini notifications enabled!"
+            Write-Info "Config: $script:GeminiSettingsFile"
+            Send-Notification -Title "Code-Notify" -Message "Gemini notifications enabled!" -Type "success"
+            return
+        }
+        default {
+            $projectName = Get-ProjectName
+
+            if ($Project) {
+                $projectRoot = Get-ProjectRoot
+                $settingsFile = Join-Path $projectRoot ".claude\settings.json"
+                $claudeDir = Join-Path $projectRoot ".claude"
+
+                Write-Host "[>] Enabling notifications for project: $projectName" -ForegroundColor Cyan
+
+                if (-not (Test-Path $claudeDir)) {
+                    New-Item -ItemType Directory -Path $claudeDir -Force | Out-Null
+                }
+            } else {
+                $settingsFile = $script:SettingsFile
+                Write-Host "[>] Enabling notifications globally" -ForegroundColor Cyan
+            }
+
+            Backup-ConfigFile $settingsFile
+
+            $settings = @{
+                hooks = @{
+                    Notification = @(
+                        @{
+                            matcher = ""
+                            hooks = @(
+                                @{
+                                    type = "command"
+                                    command = "powershell -ExecutionPolicy Bypass -File `"$notifyScript`" notification claude"
+                                }
+                            )
+                        }
+                    )
+                    Stop = @(
+                        @{
+                            matcher = ""
+                            hooks = @(
+                                @{
+                                    type = "command"
+                                    command = "powershell -ExecutionPolicy Bypass -File `"$notifyScript`" stop claude"
+                                }
+                            )
+                        }
+                    )
+                }
+            }
+
+            if (Test-Path $settingsFile) {
+                $existingSettings = Get-Content $settingsFile -Raw | ConvertFrom-Json -ErrorAction SilentlyContinue
+                if ($existingSettings) {
+                    $existingSettings.PSObject.Properties | ForEach-Object {
+                        if ($_.Name -ne "hooks") {
+                            $settings[$_.Name] = $_.Value
+                        }
+                    }
+                }
+            }
+
+            $parentDir = Split-Path $settingsFile -Parent
+            if (-not (Test-Path $parentDir)) {
+                New-Item -ItemType Directory -Path $parentDir -Force | Out-Null
+            }
+
+            $settings | ConvertTo-Json -Depth 10 | Set-Content $settingsFile -Encoding UTF8
+
+            Write-Success "$toolDisplay notifications enabled!"
+            Write-Info "Config: $settingsFile"
+            Send-Notification -Title "Code-Notify" -Message "$toolDisplay notifications enabled!" -Type "success"
+        }
+    }
+}
+
+function Disable-Notifications {
+    param(
+        [switch]$Project,
+        [string]$Tool = "claude"
+    )
+
+    $tool = $Tool.ToLower()
+
+    if ($Project -and $tool -ne "claude") {
+        Write-Warning "Project notifications on Windows are only supported for Claude right now"
+        return
+    }
+
+    switch ($tool) {
+        "codex" {
+            Write-Host "[>] Disabling Codex notifications globally" -ForegroundColor Cyan
+            if (-not (Test-Path $script:CodexConfigFile)) {
+                Write-Warning "Codex notifications are already disabled"
+                return
+            }
+
+            Backup-ConfigFile $script:CodexConfigFile
+            $content = @(Get-Content $script:CodexConfigFile | Where-Object {
+                $_ -notmatch '^\s*# Code-Notify: Desktop notifications' -and $_ -notmatch '^\s*notify\s*='
+            })
+            $content | Set-Content $script:CodexConfigFile -Encoding UTF8
+            Write-Success "Codex notifications disabled!"
+            return
+        }
+        "gemini" {
+            Write-Host "[>] Disabling Gemini notifications globally" -ForegroundColor Cyan
+            if (-not (Test-Path $script:GeminiSettingsFile)) {
+                Write-Warning "Gemini notifications are already disabled"
+                return
+            }
+
+            Backup-ConfigFile $script:GeminiSettingsFile
+            $settings = Get-Content $script:GeminiSettingsFile -Raw | ConvertFrom-Json -ErrorAction SilentlyContinue
+            if ($settings -and $settings.hooks) {
+                $settings.hooks.PSObject.Properties.Remove("Notification")
+                $settings.hooks.PSObject.Properties.Remove("AfterAgent")
+                $settings.hooks.PSObject.Properties.Remove("enabled")
+                $settings | ConvertTo-Json -Depth 10 | Set-Content $script:GeminiSettingsFile -Encoding UTF8
+                Write-Success "Gemini notifications disabled!"
+            } else {
+                Write-Warning "Gemini notifications were not enabled"
+            }
+            return
+        }
+        default {
+            if ($Project) {
+                $projectRoot = Get-ProjectRoot
+                $settingsFile = Join-Path $projectRoot ".claude\settings.json"
+                Write-Host "[>] Disabling notifications for project" -ForegroundColor Cyan
+            } else {
+                $settingsFile = $script:SettingsFile
+                Write-Host "[>] Disabling notifications globally" -ForegroundColor Cyan
+            }
+
+            if (-not (Test-Path $settingsFile)) {
+                Write-Warning "Notifications are already disabled"
+                return
+            }
+
+            Backup-ConfigFile $settingsFile
+            $settings = Get-Content $settingsFile -Raw | ConvertFrom-Json -ErrorAction SilentlyContinue
+            if ($settings -and $settings.hooks) {
+                $settings.PSObject.Properties.Remove("hooks")
+                $settings | ConvertTo-Json -Depth 10 | Set-Content $settingsFile -Encoding UTF8
+                Write-Success "Notifications disabled!"
+            } else {
+                Write-Warning "Notifications were not enabled"
+            }
+        }
     }
 }
 
 function Show-Status {
-    param([switch]$Project)
+    param(
+        [switch]$Project,
+        [string]$Tool = ""
+    )
 
     Write-Host "`n[i] Code-Notify Status" -ForegroundColor Cyan
     Write-Host "========================`n" -ForegroundColor Cyan
 
-    # Global status
-    if (Test-NotificationsEnabled) {
-        Write-Host "[*] Global notifications: ENABLED" -ForegroundColor Green
-    } else {
-        Write-Host "[-] Global notifications: DISABLED" -ForegroundColor DarkGray
-    }
+    if ($Project) {
+        $projectRoot = Get-ProjectRoot
+        $projectName = Get-ProjectName
+        $projectSettings = Join-Path $projectRoot ".claude\settings.json"
 
-    # Project status
-    $projectRoot = Get-ProjectRoot
-    $projectName = Get-ProjectName
-    $projectSettings = Join-Path $projectRoot ".claude\settings.json"
+        Write-Host "[D] Project: $projectName" -ForegroundColor White
+        Write-Host "    Location: $projectRoot" -ForegroundColor DarkGray
 
-    Write-Host "`n[D] Project: $projectName" -ForegroundColor White
-    Write-Host "    Location: $projectRoot" -ForegroundColor DarkGray
-
-    if (Test-Path $projectSettings) {
-        $settings = Get-Content $projectSettings -Raw | ConvertFrom-Json -ErrorAction SilentlyContinue
-        if ($settings -and $settings.hooks) {
-            Write-Host "[*] Project notifications: ENABLED" -ForegroundColor Green
+        if (Test-NotificationsEnabled -Tool "claude" -Project) {
+            Write-Host "[*] Claude project notifications: ENABLED" -ForegroundColor Green
+            Write-Host "    Config: $projectSettings" -ForegroundColor Gray
         } else {
-            Write-Host "[-] Project notifications: DISABLED" -ForegroundColor DarkGray
+            Write-Host "[-] Claude project notifications: DISABLED" -ForegroundColor DarkGray
         }
     } else {
-        Write-Host "[-] Project notifications: Not configured" -ForegroundColor DarkGray
+        $toolsToShow = @("claude", "codex", "gemini")
+        if ($Tool) {
+            $toolsToShow = @($Tool.ToLower())
+        }
+
+        foreach ($currentTool in $toolsToShow) {
+            $displayName = Get-ToolDisplayName $currentTool
+            $configPath = switch ($currentTool) {
+                "codex" { $script:CodexConfigFile }
+                "gemini" { $script:GeminiSettingsFile }
+                default { $script:SettingsFile }
+            }
+
+            if (Test-NotificationsEnabled -Tool $currentTool) {
+                Write-Host "[*] $displayName notifications: ENABLED" -ForegroundColor Green
+                Write-Host "    Config: $configPath" -ForegroundColor Gray
+            } else {
+                Write-Host "[-] $displayName notifications: DISABLED" -ForegroundColor DarkGray
+            }
+        }
+
+        $projectRoot = Get-ProjectRoot
+        $projectName = Get-ProjectName
+        Write-Host "`n[D] Project: $projectName" -ForegroundColor White
+        Write-Host "    Location: $projectRoot" -ForegroundColor DarkGray
+
+        if (Test-NotificationsEnabled -Tool "claude" -Project) {
+            Write-Host "[*] Claude project notifications: ENABLED" -ForegroundColor Green
+        } else {
+            Write-Host "[-] Claude project notifications: DISABLED" -ForegroundColor DarkGray
+        }
     }
 
     # Voice status
@@ -654,7 +876,7 @@ function Send-TestNotification {
 function Show-Help {
     Write-Host @"
 
-Code-Notify - Native Windows notifications for Claude Code
+Code-Notify - Native Windows notifications for Claude Code, Codex, and Gemini CLI
 
 USAGE:
     code-notify <command> [options]
@@ -662,14 +884,19 @@ USAGE:
     cnp <command>             # Project command alias
 
 COMMANDS:
-    on              Enable notifications globally
-    off             Disable notifications globally
-    status          Show notification status
+    on [tool]       Enable notifications globally or for a specific tool
+    off [tool]      Disable notifications globally or for a specific tool
+    status [tool]   Show notification status
     test            Send a test notification
     voice on        Enable voice notifications
     voice off       Disable voice notifications
     help            Show this help message
     version         Show version information
+
+TOOLS:
+    claude          Claude Code
+    codex           OpenAI Codex CLI
+    gemini          Google Gemini CLI
 
 SOUND COMMANDS:
     sound on        Enable with default system sound
@@ -681,17 +908,18 @@ SOUND COMMANDS:
     sound status    Show sound configuration
 
 PROJECT COMMANDS:
-    project on      Enable for current project (or: cnp on)
-    project off     Disable for current project (or: cnp off)
-    project status  Check project status (or: cnp status)
+    project on      Enable for current project (Claude project hooks) (or: cnp on)
+    project off     Disable for current project (Claude project hooks) (or: cnp off)
+    project status  Check project status (Claude project hooks) (or: cnp status)
     project voice   Set project-specific voice (or: cnp voice)
 
 EXAMPLES:
-    code-notify on            # Enable notifications
-    cn off                      # Disable notifications
-    cnp on                      # Enable for current project
-    cn test                     # Send test notification
-    cn sound on                 # Enable notification sounds
+    code-notify on            # Enable Claude notifications
+    cn on codex               # Enable Codex notifications
+    cn off gemini             # Disable Gemini notifications
+    cnp on                    # Enable Claude project notifications
+    cn test                   # Send test notification
+    cn sound on               # Enable notification sounds
     cn sound set C:\sounds\ding.wav  # Use custom sound
 
 MORE INFO:
@@ -701,7 +929,7 @@ MORE INFO:
 }
 
 # Main command handler
-function Invoke-ClaudeNotify {
+function Invoke-CodeNotify {
     param(
         [Parameter(Position=0)]
         [string]$Command = "help",
@@ -713,10 +941,30 @@ function Invoke-ClaudeNotify {
         [string[]]$Args
     )
 
+    $toolCommands = @("claude", "codex", "gemini")
+
     switch ($Command.ToLower()) {
-        "on" { Enable-Notifications }
-        "off" { Disable-Notifications }
-        "status" { Show-Status }
+        "on" {
+            if ($SubCommand -and ($toolCommands -contains $SubCommand.ToLower())) {
+                Enable-Notifications -Tool $SubCommand
+            } else {
+                Enable-Notifications
+            }
+        }
+        "off" {
+            if ($SubCommand -and ($toolCommands -contains $SubCommand.ToLower())) {
+                Disable-Notifications -Tool $SubCommand
+            } else {
+                Disable-Notifications
+            }
+        }
+        "status" {
+            if ($SubCommand -and ($toolCommands -contains $SubCommand.ToLower())) {
+                Show-Status -Tool $SubCommand
+            } else {
+                Show-Status
+            }
+        }
         "test" { Send-TestNotification }
         "voice" {
             switch ($SubCommand) {
@@ -763,8 +1011,24 @@ function Invoke-ClaudeNotify {
     }
 }
 
+function Invoke-ClaudeNotify {
+    param(
+        [Parameter(Position=0)]
+        [string]$Command = "help",
+
+        [Parameter(Position=1)]
+        [string]$SubCommand,
+
+        [Parameter(ValueFromRemainingArguments)]
+        [string[]]$Args
+    )
+
+    Invoke-CodeNotify -Command $Command -SubCommand $SubCommand -Args $Args
+}
+
 # Export functions
 Export-ModuleMember -Function @(
+    'Invoke-CodeNotify',
     'Invoke-ClaudeNotify',
     'Send-Notification',
     'Send-VoiceNotification',
@@ -787,20 +1051,21 @@ Export-ModuleMember -Function @(
 '@
 
     # Save main module
+    $mainScript | Set-Content "$InstallDir\lib\CodeNotify.psm1" -Encoding UTF8
     $mainScript | Set-Content "$InstallDir\lib\ClaudeNotify.psm1" -Encoding UTF8
     Write-Success "Created PowerShell module"
 
     # Create the notification script (called by hooks)
-    $notifyScript = @'
+$notifyScript = @'
 # Code-Notify notification script
-# Called by Claude Code hooks
+# Called by Claude Code, Codex, and Gemini hooks
 
 param(
     [Parameter(Position=0)]
     [string]$HookType = "notification",
 
     [Parameter(Position=1)]
-    [string]$Status = "completed",
+    [string]$ToolName = "claude",
 
     [Parameter(Position=2)]
     [string]$ProjectName = ""
@@ -819,6 +1084,18 @@ try {
 } catch {
     $HookData = ""
 }
+
+function Get-ToolDisplayName {
+    param([string]$Tool = "claude")
+
+    switch ($Tool.ToLower()) {
+        "codex" { return "Codex" }
+        "gemini" { return "Gemini" }
+        default { return "Claude Code" }
+    }
+}
+
+$ToolDisplay = Get-ToolDisplayName $ToolName
 
 # Function to check if notification should be suppressed
 function Test-ShouldSuppressNotification {
@@ -885,22 +1162,22 @@ if (-not $ProjectName) {
 # Set notification content based on hook type
 switch ($HookType.ToLower()) {
     "stop" {
-        $Title = "Claude Code - Task Complete"
-        $Message = "Your task in $ProjectName has been completed!"
-        $VoiceMessage = "Your task in $ProjectName is complete"
+        $Title = "$ToolDisplay - Task Complete"
+        $Message = "$ToolDisplay completed the task in $ProjectName"
+        $VoiceMessage = "$ToolDisplay completed the task in $ProjectName"
     }
     "notification" {
-        $Title = "Claude Code - Input Required"
-        $Message = "Claude needs your input in $ProjectName"
-        $VoiceMessage = "Input needed in $ProjectName"
+        $Title = "$ToolDisplay - Input Required"
+        $Message = "$ToolDisplay needs your input in $ProjectName"
+        $VoiceMessage = "$ToolDisplay needs your input in $ProjectName"
     }
     "pretooluse" {
-        $Title = "Claude Code - Command Approval"
-        $Message = "Claude wants to run a command in $ProjectName"
-        $VoiceMessage = "Command approval needed in $ProjectName"
+        $Title = "$ToolDisplay - Command Approval"
+        $Message = "$ToolDisplay wants to run a command in $ProjectName"
+        $VoiceMessage = "$ToolDisplay wants to run a command in $ProjectName"
     }
     "error" {
-        $Title = "Claude Code - Error"
+        $Title = "$ToolDisplay - Error"
         $Message = "An error occurred in $ProjectName"
         $VoiceMessage = "An error occurred in $ProjectName"
     }
@@ -910,8 +1187,8 @@ switch ($HookType.ToLower()) {
         $VoiceMessage = "Test notification successful"
     }
     default {
-        $Title = "Claude Code"
-        $Message = "Status update: $Status"
+        $Title = $ToolDisplay
+        $Message = "Status update: $HookType"
         $VoiceMessage = "Status update from $ProjectName"
     }
 }
@@ -1088,7 +1365,7 @@ function Send-SoundNotificationLocal {
 # Log notification
 function Write-NotificationLog {
     $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-    $logEntry = "[$timestamp] [$ProjectName] $Title - $Message"
+    $logEntry = "[$timestamp] [$ToolName] [$ProjectName] $Title - $Message"
 
     $logDir = Split-Path $LogFile -Parent
     if (-not (Test-Path $logDir)) {
@@ -1114,8 +1391,8 @@ exit 0
     $cliWrapper = @'
 # Code-Notify CLI wrapper
 param([Parameter(ValueFromRemainingArguments)][string[]]$Args)
-Import-Module "$env:USERPROFILE\.code-notify\lib\ClaudeNotify.psm1" -Force
-Invoke-ClaudeNotify @Args
+Import-Module "$env:USERPROFILE\.code-notify\lib\CodeNotify.psm1" -Force
+Invoke-CodeNotify @Args
 '@
 
     $cliWrapper | Set-Content "$InstallDir\bin\code-notify.ps1" -Encoding UTF8
@@ -1124,8 +1401,8 @@ Invoke-ClaudeNotify @Args
     $cnWrapper = @'
 # cn - Code-Notify shortcut
 param([Parameter(ValueFromRemainingArguments)][string[]]$Args)
-Import-Module "$env:USERPROFILE\.code-notify\lib\ClaudeNotify.psm1" -Force
-Invoke-ClaudeNotify @Args
+Import-Module "$env:USERPROFILE\.code-notify\lib\CodeNotify.psm1" -Force
+Invoke-CodeNotify @Args
 '@
     $cnWrapper | Set-Content "$InstallDir\bin\cn.ps1" -Encoding UTF8
 
@@ -1133,8 +1410,8 @@ Invoke-ClaudeNotify @Args
     $cnpWrapper = @'
 # cnp - Code-Notify Project shortcut
 param([Parameter(ValueFromRemainingArguments)][string[]]$Args)
-Import-Module "$env:USERPROFILE\.code-notify\lib\ClaudeNotify.psm1" -Force
-Invoke-ClaudeNotify "project" @Args
+Import-Module "$env:USERPROFILE\.code-notify\lib\CodeNotify.psm1" -Force
+Invoke-CodeNotify "project" @Args
 '@
     $cnpWrapper | Set-Content "$InstallDir\bin\cnp.ps1" -Encoding UTF8
 

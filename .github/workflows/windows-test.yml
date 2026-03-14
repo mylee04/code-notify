@@ -75,6 +75,7 @@ jobs:
     - name: Verify installed files
       run: |
         $files = @(
+          "$env:USERPROFILE\.code-notify\lib\CodeNotify.psm1",
           "$env:USERPROFILE\.code-notify\lib\ClaudeNotify.psm1",
           "$env:USERPROFILE\.code-notify\bin\code-notify.ps1",
           "$env:USERPROFILE\.code-notify\bin\cn.ps1",
@@ -92,10 +93,10 @@ jobs:
 
     - name: Test module import
       run: |
-        Import-Module "$env:USERPROFILE\.code-notify\lib\ClaudeNotify.psm1" -Force
+        Import-Module "$env:USERPROFILE\.code-notify\lib\CodeNotify.psm1" -Force
 
         # Check exported functions
-        $functions = @('Invoke-ClaudeNotify', 'Send-Notification', 'Enable-Notifications', 'Disable-Notifications', 'Show-Status')
+        $functions = @('Invoke-CodeNotify', 'Invoke-ClaudeNotify', 'Send-Notification', 'Enable-Notifications', 'Disable-Notifications', 'Show-Status')
         foreach ($func in $functions) {
           if (-not (Get-Command $func -ErrorAction SilentlyContinue)) {
             Write-Host "ERROR: Function not exported: $func" -ForegroundColor Red
@@ -144,6 +145,32 @@ jobs:
           exit 1
         }
         Write-Host "OK: Notifications disabled, hooks removed" -ForegroundColor Green
+
+    - name: Test tool-specific commands
+      run: |
+        & "$env:USERPROFILE\.code-notify\bin\cn.ps1" on codex
+
+        $codexConfig = "$env:USERPROFILE\.codex\config.toml"
+        if (-not (Test-Path $codexConfig)) {
+          Write-Host "ERROR: Codex config.toml not created" -ForegroundColor Red
+          exit 1
+        }
+
+        $codexContent = Get-Content $codexConfig -Raw
+        if ($codexContent -notmatch 'notify\s*=') {
+          Write-Host "ERROR: Codex notify hook not added" -ForegroundColor Red
+          exit 1
+        }
+        Write-Host "OK: Codex notifications enabled" -ForegroundColor Green
+
+        & "$env:USERPROFILE\.code-notify\bin\cn.ps1" off codex
+
+        $codexContent = Get-Content $codexConfig -Raw
+        if ($codexContent -match 'notify\s*=') {
+          Write-Host "ERROR: Codex notify hook not removed" -ForegroundColor Red
+          exit 1
+        }
+        Write-Host "OK: Codex notifications disabled" -ForegroundColor Green
 
     - name: Test project commands
       run: |
@@ -197,8 +224,8 @@ jobs:
         Write-Host "  All Windows installation tests passed!" -ForegroundColor Green
         Write-Host "========================================" -ForegroundColor Green
 
-  test-windows-2019:
-    runs-on: windows-2019
+  test-windows-2022:
+    runs-on: windows-2022
 
     steps:
     - name: Checkout repository
@@ -217,4 +244,4 @@ jobs:
       run: |
         & "$env:USERPROFILE\.code-notify\bin\cn.ps1" version
         & "$env:USERPROFILE\.code-notify\bin\cn.ps1" status
-        Write-Host "OK: Basic functionality works on Windows Server 2019" -ForegroundColor Green
+        Write-Host "OK: Basic functionality works on Windows Server 2022" -ForegroundColor Green
