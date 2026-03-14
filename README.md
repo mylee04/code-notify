@@ -11,7 +11,7 @@ Desktop notifications for AI coding tools - get alerts when tasks complete or in
   <img src="assets/multi-tools-support-02.png" width="48%" alt="All tools enabled"/>
 </p>
 
-[![Version](https://img.shields.io/badge/version-1.6.1-blue.svg)](https://github.com/mylee04/code-notify/releases)
+[![Version](https://img.shields.io/badge/version-1.6.2-blue.svg)](https://github.com/mylee04/code-notify/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![macOS](https://img.shields.io/badge/macOS-supported-green.svg)](https://www.apple.com/macos)
 [![Linux](https://img.shields.io/badge/Linux-supported-green.svg)](https://www.linux.org/)
@@ -19,13 +19,11 @@ Desktop notifications for AI coding tools - get alerts when tasks complete or in
 
 ---
 
-## What's New in v1.6.1
+## What's New in v1.6.2
 
-- **WSL notifications fixed**: WSL is now detected explicitly and can send Windows toast notifications via `wsl-notify-send.exe`
-- **Linux setup/status fixed**: native Linux no longer falls through macOS-only setup assumptions
-- **macOS sound toggle fixed**: `cn sound off` now suppresses notification sounds consistently
-- **Windows sound playback fixed**: hook notifications now use synchronous sound playback so audio is not cut off
-- **Windows native toast fallback fixed**: the non-BurntToast path now uses the reliable simple toast flow again
+- **Windows tool routing fixed**: `cn on codex` and `cn on gemini` now write to the correct Windows config files instead of falling back to Claude
+- **Windows installer cleanup**: generated PowerShell wrappers now use a generic `CodeNotify` module while keeping Claude compatibility aliases
+- **Windows CI fixed**: the workflow now validates tool-specific routing and uses a supported `windows-2022` runner
 
 ---
 
