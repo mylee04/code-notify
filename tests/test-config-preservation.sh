@@ -465,6 +465,130 @@ run_test_project_hooks_special_chars() {
     return $?
 }
 
+run_test_codex_toml_placement() {
+    local test_dir=$(mktemp -d)
+    trap "rm -rf $test_dir" RETURN
+
+    export HOME="$test_dir"
+    export CODEX_HOME="$test_dir/.codex"
+    mkdir -p "$CODEX_HOME"
+
+    (
+        source "$SCRIPT_DIR/../lib/code-notify/core/config.sh"
+
+        echo ""
+        echo "=== Testing Codex TOML placement ==="
+
+        cat > "$CODEX_CONFIG_FILE" << 'EOF'
+[notice.model_migrations]
+"gpt-5.1-codex-max" = "gpt-5.2-codex"
+
+[mcp_servers.playwright]
+args = ["@playwright/mcp@latest"]
+command = "npx"
+
+[features]
+multi_agent = true
+EOF
+
+        if ! enable_codex_hooks; then
+            echo "❌ Failed to enable Codex hooks"
+            exit 1
+        fi
+
+        local notify_line
+        local first_table_line
+        notify_line=$(grep -nE '^notify\s*=' "$CODEX_CONFIG_FILE" | head -n1 | cut -d: -f1)
+        first_table_line=$(grep -nE '^\s*\[' "$CODEX_CONFIG_FILE" | head -n1 | cut -d: -f1)
+
+        if [[ -z "$notify_line" || -z "$first_table_line" || "$notify_line" -ge "$first_table_line" ]]; then
+            echo "❌ notify was not inserted before the first TOML table"
+            cat "$CODEX_CONFIG_FILE"
+            exit 1
+        fi
+        echo "✅ notify inserted before the first TOML table"
+
+        if ! is_codex_enabled; then
+            echo "❌ is_codex_enabled did not detect the repaired config"
+            exit 1
+        fi
+        echo "✅ is_codex_enabled only accepts top-level notify"
+
+        if command -v python3 &> /dev/null; then
+            if ! python3 - "$CODEX_CONFIG_FILE" << 'PY'
+import sys, tomllib
+
+with open(sys.argv[1], "rb") as fh:
+    data = tomllib.load(fh)
+
+assert "notify" in data, data
+assert "notify" not in data.get("features", {}), data
+PY
+            then
+                echo "❌ TOML parser still sees notify under a table"
+                cat "$CODEX_CONFIG_FILE"
+                exit 1
+            fi
+            echo "✅ TOML parser sees notify at top-level"
+        fi
+
+        if ! disable_codex_hooks; then
+            echo "❌ Failed to disable Codex hooks"
+            exit 1
+        fi
+
+        if grep -qE '^notify\s*=' "$CODEX_CONFIG_FILE" || grep -q '^# Code-Notify: Desktop notifications' "$CODEX_CONFIG_FILE"; then
+            echo "❌ disable_codex_hooks did not remove Code-Notify lines"
+            cat "$CODEX_CONFIG_FILE"
+            exit 1
+        fi
+
+        if ! grep -q '^\[features\]' "$CODEX_CONFIG_FILE" || ! grep -q '^multi_agent = true' "$CODEX_CONFIG_FILE"; then
+            echo "❌ disable_codex_hooks did not preserve existing TOML content"
+            cat "$CODEX_CONFIG_FILE"
+            exit 1
+        fi
+        echo "✅ disable_codex_hooks preserves existing TOML content"
+
+        cat > "$CODEX_CONFIG_FILE" << 'EOF'
+[features]
+multi_agent = true
+
+# Code-Notify: Desktop notifications
+notify = ["bash", "-c", "/tmp/notifier stop codex"]
+EOF
+
+        if is_codex_enabled; then
+            echo "❌ Misplaced notify should not count as enabled"
+            exit 1
+        fi
+        echo "✅ Misplaced notify is not treated as enabled"
+
+        if ! enable_codex_hooks; then
+            echo "❌ Failed to repair misplaced notify"
+            exit 1
+        fi
+
+        notify_line=$(grep -nE '^notify\s*=' "$CODEX_CONFIG_FILE" | head -n1 | cut -d: -f1)
+        first_table_line=$(grep -nE '^\s*\[' "$CODEX_CONFIG_FILE" | head -n1 | cut -d: -f1)
+
+        if [[ -z "$notify_line" || -z "$first_table_line" || "$notify_line" -ge "$first_table_line" ]]; then
+            echo "❌ Re-enable did not move notify back to top-level"
+            cat "$CODEX_CONFIG_FILE"
+            exit 1
+        fi
+
+        if [[ $(grep -cE '^notify\s*=' "$CODEX_CONFIG_FILE") -ne 1 ]]; then
+            echo "❌ Re-enable left duplicate notify entries"
+            cat "$CODEX_CONFIG_FILE"
+            exit 1
+        fi
+        echo "✅ Re-enable repairs misplaced notify without duplicates"
+    )
+
+    return $?
+}
+
 echo "============================================"
 echo "Config Preservation Bug Fix Tests"
 echo "============================================"
@@ -516,6 +640,9 @@ for test_case in "space" "semicolon" "quote"; do
         run_test_project_hooks_special_chars "python" "$test_case" || fail "Python project hooks $test_case tests failed"
     fi
 done
+
+# Test 8: Codex TOML placement and repair
+run_test_codex_toml_placement || fail "Codex TOML placement test failed"
 
 echo ""
 echo "============================================"

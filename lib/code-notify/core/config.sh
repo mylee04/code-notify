@@ -77,6 +77,100 @@ atomic_write() {
     fi
 }
 
+# Escape a string for use inside a TOML basic string.
+toml_escape_string() {
+    local str="$1"
+    str="${str//\\/\\\\}"
+    str="${str//\"/\\\"}"
+    printf '%s' "$str"
+}
+
+# Check whether a key exists at TOML top-level (before the first table header).
+toml_has_top_level_key() {
+    local file="$1"
+    local key="$2"
+
+    if [[ ! -f "$file" ]]; then
+        return 1
+    fi
+
+    awk -v key="$key" '
+        $0 ~ /^[[:space:]]*\[/ {
+            exit(found ? 0 : 1)
+        }
+        $0 ~ ("^[[:space:]]*" key "[[:space:]]*=") {
+            found = 1
+        }
+        END {
+            exit(found ? 0 : 1)
+        }
+    ' "$file"
+}
+
+# Insert Code-Notify's top-level notify key before the first TOML table.
+upsert_codex_notify_config() {
+    local file="$1"
+    local notify_line="$2"
+    local dir_path
+    local tmp_file
+
+    dir_path=$(dirname "$file")
+    tmp_file=$(mktemp "${dir_path}/.tmp.XXXXXX") || return 1
+
+    awk -v comment_line="# Code-Notify: Desktop notifications" -v notify_line="$notify_line" '
+        /^[[:space:]]*# Code-Notify: Desktop notifications[[:space:]]*$/ {
+            next
+        }
+        /^[[:space:]]*notify[[:space:]]*=/ {
+            next
+        }
+        !inserted && $0 ~ /^[[:space:]]*\[/ {
+            while (prefix_count > 0 && prefix[prefix_count] ~ /^[[:space:]]*$/) {
+                prefix_count--
+            }
+            for (i = 1; i <= prefix_count; i++) {
+                print prefix[i]
+            }
+            if (prefix_count > 0) {
+                print ""
+            }
+            print comment_line
+            print notify_line
+            print ""
+            print
+            inserted = 1
+            next
+        }
+        !inserted {
+            prefix[++prefix_count] = $0
+            next
+        }
+        {
+            print
+        }
+        END {
+            if (!inserted) {
+                while (prefix_count > 0 && prefix[prefix_count] ~ /^[[:space:]]*$/) {
+                    prefix_count--
+                }
+                for (i = 1; i <= prefix_count; i++) {
+                    print prefix[i]
+                }
+                if (prefix_count > 0) {
+                    print ""
+                }
+                print comment_line
+                print notify_line
+            }
+        }
+    ' "$file" > "$tmp_file" || {
+        rm -f "$tmp_file"
+        return 1
+    }
+
+    mv "$tmp_file" "$file"
+}
+
 # Safe jq update helper - applies jq filter and only writes on success
 # Usage: safe_jq_update <file> <jq_filter> [--arg name value]...
 # Returns 0 on success, 1 on failure (original file unchanged)
@@ -579,34 +673,27 @@ is_enabled_project_settings() {
 
 # Check if Codex notifications are enabled
 is_codex_enabled() {
-    if [[ ! -f "$CODEX_CONFIG_FILE" ]]; then
-        return 1
-    fi
-    grep -qE '^notify\s*=' "$CODEX_CONFIG_FILE" 2>/dev/null
+    toml_has_top_level_key "$CODEX_CONFIG_FILE" "notify"
 }
 
 # Enable Codex notifications
 enable_codex_hooks() {
     local notify_script=$(get_notify_script)
+    local escaped_notify_script
+    local notify_line
 
     # Ensure .codex directory exists
     mkdir -p "$CODEX_HOME"
+
+    escaped_notify_script=$(toml_escape_string "$notify_script")
+    notify_line="notify = [\"bash\", \"-c\", \"$escaped_notify_script stop codex\"]"
 
     # Check if config.toml exists
     if [[ -f "$CODEX_CONFIG_FILE" ]]; then
         # Backup existing config
         backup_config "$CODEX_CONFIG_FILE"
 
-        # Remove existing notify line if present
-        if grep -qE '^notify\s*=' "$CODEX_CONFIG_FILE"; then
-            sed -i.bak '/^notify\s*=/d' "$CODEX_CONFIG_FILE"
-            rm -f "$CODEX_CONFIG_FILE.bak"
-        fi
-
-        # Append notify setting
-        echo "" >> "$CODEX_CONFIG_FILE"
-        echo "# Code-Notify: Desktop notifications" >> "$CODEX_CONFIG_FILE"
-        echo "notify = [\"bash\", \"-c\", \"$notify_script stop codex\"]" >> "$CODEX_CONFIG_FILE"
+        upsert_codex_notify_config "$CODEX_CONFIG_FILE" "$notify_line"
     else
         # Create new config.toml
         cat > "$CODEX_CONFIG_FILE" << EOF
@@ -614,7 +701,7 @@ enable_codex_hooks() {
 # https://developers.openai.com/codex/config-reference/
 
 # Code-Notify: Desktop notifications
-notify = ["bash", "-c", "$notify_script stop codex"]
+notify = ["bash", "-c", "$escaped_notify_script stop codex"]
 EOF
     fi
 }
