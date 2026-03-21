@@ -11,7 +11,7 @@ Desktop notifications for AI coding tools - get alerts when tasks complete or in
   <img src="assets/multi-tools-support-02.png" width="48%" alt="All tools enabled"/>
 </p>
 
-[![Version](https://img.shields.io/badge/version-1.6.2-blue.svg)](https://github.com/mylee04/code-notify/releases)
+[![Version](https://img.shields.io/badge/version-1.6.3-blue.svg)](https://github.com/mylee04/code-notify/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![macOS](https://img.shields.io/badge/macOS-supported-green.svg)](https://www.apple.com/macos)
 [![Linux](https://img.shields.io/badge/Linux-supported-green.svg)](https://www.linux.org/)
@@ -19,11 +19,12 @@ Desktop notifications for AI coding tools - get alerts when tasks complete or in
 
 ---
 
-## What's New in v1.6.2
+## What's New in v1.6.3
 
-- **Windows tool routing fixed**: `cn on codex` and `cn on gemini` now write to the correct Windows config files instead of falling back to Claude
-- **Windows installer cleanup**: generated PowerShell wrappers now use a generic `CodeNotify` module while keeping Claude compatibility aliases
-- **Windows CI fixed**: the workflow now validates tool-specific routing and uses a supported `windows-2022` runner
+- **Codex TOML placement fixed**: `cn on codex` now writes `notify = [...]` at the TOML top level instead of appending it under the last table in non-empty `~/.codex/config.toml`
+- **Windows Codex config fixed too**: the PowerShell installer now applies the same top-level insertion logic, so Codex settings do not end up nested under `[features]`
+- **Misplaced Codex notify entries now repair cleanly**: rerunning `cn on codex` moves an older misplaced `notify` entry back to the top level without duplicating it
+- **Regression coverage added**: tests now exercise the exact non-empty Codex config scenario reported in issue `#32`
 
 ---
 
