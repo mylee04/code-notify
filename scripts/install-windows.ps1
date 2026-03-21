@@ -151,6 +151,60 @@ function Backup-ConfigFile {
     Copy-Item $Path (Join-Path $backupDir "$safeName.$timestamp.bak") -ErrorAction SilentlyContinue
 }
 
+function Test-TomlTopLevelKey {
+    param(
+        [string]$Path,
+        [string]$Key
+    )
+
+    if (-not (Test-Path $Path)) {
+        return $false
+    }
+
+    $content = Get-Content $Path -Raw
+    $match = [regex]::Match($content, "(?m)^\\s*\\[")
+    $prefix = if ($match.Success) { $content.Substring(0, $match.Index) } else { $content }
+
+    return [bool]([regex]::IsMatch($prefix, "(?m)^\\s*$([regex]::Escape($Key))\\s*="))
+}
+
+function Set-CodexNotifyConfig {
+    param(
+        [string]$Path,
+        [string]$NotifyLine
+    )
+
+    $commentLine = "# Code-Notify: Desktop notifications"
+
+    if (Test-Path $Path) {
+        $content = Get-Content $Path -Raw
+    } else {
+        $content = "# Codex CLI Configuration`n# https://developers.openai.com/codex/config-reference/"
+    }
+
+    $content = (($content -split "`r?`n") | Where-Object {
+        $_ -notmatch '^\s*# Code-Notify: Desktop notifications\s*$' -and $_ -notmatch '^\s*notify\s*='
+    }) -join "`n"
+    $content = $content.TrimEnd()
+
+    $tableMatch = [regex]::Match($content, '(?m)^\s*\[')
+    if ($tableMatch.Success) {
+        $prefix = $content.Substring(0, $tableMatch.Index).TrimEnd()
+        $suffix = $content.Substring($tableMatch.Index)
+        if ($prefix) {
+            $content = "$prefix`n`n$commentLine`n$NotifyLine`n`n$suffix"
+        } else {
+            $content = "$commentLine`n$NotifyLine`n`n$suffix"
+        }
+    } elseif ($content) {
+        $content = "$content`n`n$commentLine`n$NotifyLine"
+    } else {
+        $content = "$commentLine`n$NotifyLine"
+    }
+
+    Set-Content $Path -Value $content -Encoding UTF8
+}
+
 function Test-GitInstalled {
     $null = Get-Command git -ErrorAction SilentlyContinue
     return $?
@@ -431,7 +485,7 @@ function Test-NotificationsEnabled {
                 return $false
             }
 
-            return [bool](Select-String -Path $script:CodexConfigFile -Pattern '^\s*notify\s*=' -Quiet)
+            return Test-TomlTopLevelKey -Path $script:CodexConfigFile -Key "notify"
         }
         "gemini" {
             if ($Project -or -not (Test-Path $script:GeminiSettingsFile)) {
@@ -482,24 +536,7 @@ function Enable-Notifications {
 
             $escapedNotifyScript = $notifyScript -replace '\\', '\\\\'
             $notifyLine = 'notify = ["powershell", "-ExecutionPolicy", "Bypass", "-File", "' + $escapedNotifyScript + '", "stop", "codex"]'
-            $content = @()
-
-            if (Test-Path $script:CodexConfigFile) {
-                $content = @(Get-Content $script:CodexConfigFile | Where-Object {
-                    $_ -notmatch '^\s*# Code-Notify: Desktop notifications' -and $_ -notmatch '^\s*notify\s*='
-                })
-            } else {
-                $content += "# Codex CLI Configuration"
-                $content += "# https://developers.openai.com/codex/config-reference/"
-            }
-
-            if ($content.Count -gt 0) {
-                $content += ""
-            }
-            $content += "# Code-Notify: Desktop notifications"
-            $content += $notifyLine
-
-            $content | Set-Content $script:CodexConfigFile -Encoding UTF8
+            Set-CodexNotifyConfig -Path $script:CodexConfigFile -NotifyLine $notifyLine
             Write-Success "Codex notifications enabled!"
             Write-Info "Config: $script:CodexConfigFile"
             Send-Notification -Title "Code-Notify" -Message "Codex notifications enabled!" -Type "success"
