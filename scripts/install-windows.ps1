@@ -922,9 +922,10 @@ function Update-CodeNotify {
     $updateCommand = Get-UpdateCommand
 
     if ($Check) {
-        Write-Host "`n[i] Checking for updates..." -ForegroundColor Cyan
-        Write-Host "To update code-notify, run:" -ForegroundColor White
-        Write-Host "  $updateCommand" -ForegroundColor Gray
+        Write-Output ""
+        Write-Output "[i] Checking for updates..."
+        Write-Output "To update code-notify, run:"
+        Write-Output "  $updateCommand"
         return
     }
 
