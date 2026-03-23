@@ -11,7 +11,7 @@ Desktop notifications for AI coding tools - get alerts when tasks complete or in
   <img src="assets/multi-tools-support-02.png" width="48%" alt="All tools enabled"/>
 </p>
 
-[![Version](https://img.shields.io/badge/version-1.6.5-blue.svg)](https://github.com/mylee04/code-notify/releases)
+[![Version](https://img.shields.io/badge/version-1.6.6-blue.svg)](https://github.com/mylee04/code-notify/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![macOS](https://img.shields.io/badge/macOS-supported-green.svg)](https://www.apple.com/macos)
 [![Linux](https://img.shields.io/badge/Linux-supported-green.svg)](https://www.linux.org/)
@@ -19,12 +19,11 @@ Desktop notifications for AI coding tools - get alerts when tasks complete or in
 
 ---
 
-## What's New in v1.6.5
+## What's New in v1.6.6
 
-- **`cn update check` now checks the latest release**: script and Windows installs now compare the installed version against the latest GitHub release before showing the update command
-- **No-op updates now stay no-op**: `cn update` no longer reruns the installer when the current install is already up to date
-- **Windows update UX improved**: the PowerShell path now reports current/latest versions and skips the reinstall flow when no update is needed
-- **Regression coverage expanded again**: tests and CI now verify the up-to-date path for both `cn update check` and `cn update`
+- **`cnp on` now warns instead of changing trust state**: when Claude project trust has not been accepted yet, Code-Notify explains that project hooks may be ignored until the prompt is approved
+- **Windows gets the same project-trust detection**: the PowerShell install path now surfaces the same warning for project-level setup instead of silently assuming trust
+- **Regression coverage expanded again**: tests and CI now verify the warning path for untrusted Claude projects on both shell and Windows flows
 
 ---
 
