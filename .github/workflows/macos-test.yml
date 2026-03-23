@@ -155,11 +155,29 @@ jobs:
     - name: Test update check command
       run: |
         export PATH="$HOME/.local/bin:$PATH"
-        UPDATE_OUTPUT="$(cn update check)"
+        CURRENT_VERSION="$(cn version | awk '{print $3}')"
+        UPDATE_OUTPUT="$(CODE_NOTIFY_LATEST_VERSION="$CURRENT_VERSION" cn update check)"
         echo "$UPDATE_OUTPUT"
+
+        if ! echo "$UPDATE_OUTPUT" | grep -q 'Already up to date'; then
+          echo "ERROR: update check did not report the install as current"
+          exit 1
+        fi
 
         if ! echo "$UPDATE_OUTPUT" | grep -q 'scripts/install.sh'; then
           echo "ERROR: update check did not point to the install script"
+          exit 1
+        fi
+
+    - name: Test no-op update command
+      run: |
+        export PATH="$HOME/.local/bin:$PATH"
+        CURRENT_VERSION="$(cn version | awk '{print $3}')"
+        UPDATE_OUTPUT="$(CODE_NOTIFY_LATEST_VERSION="$CURRENT_VERSION" cn update)"
+        echo "$UPDATE_OUTPUT"
+
+        if ! echo "$UPDATE_OUTPUT" | grep -q 'Already up to date'; then
+          echo "ERROR: update command did not skip reinstalling the current version"
           exit 1
         fi
 

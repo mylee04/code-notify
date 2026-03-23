@@ -8,6 +8,8 @@ source "$GLOBAL_CMD_DIR/../utils/voice.sh"
 source "$GLOBAL_CMD_DIR/../utils/sound.sh"
 source "$GLOBAL_CMD_DIR/../utils/help.sh"
 
+CODE_NOTIFY_RELEASES_API="https://api.github.com/repos/mylee04/code-notify/releases/latest"
+
 # Handle global commands
 handle_global_command() {
     local command="${1:-status}"
@@ -58,6 +60,11 @@ handle_global_command() {
 detect_update_method() {
     local source_dir="${1:-$GLOBAL_CMD_DIR}"
 
+    if [[ -n "${CODE_NOTIFY_INSTALL_METHOD:-}" ]]; then
+        echo "$CODE_NOTIFY_INSTALL_METHOD"
+        return 0
+    fi
+
     case "$source_dir" in
         /opt/homebrew/Cellar/code-notify/*|/usr/local/Cellar/code-notify/*|/opt/homebrew/opt/code-notify/*|/usr/local/opt/code-notify/*)
             echo "homebrew"
@@ -67,6 +74,95 @@ detect_update_method() {
             ;;
         *)
             echo "manual"
+            ;;
+    esac
+}
+
+normalize_version() {
+    local version="${1:-}"
+    version="${version#v}"
+    version="${version#V}"
+    printf '%s\n' "$version"
+}
+
+compare_versions() {
+    local left_version right_version
+    local -a left_parts=()
+    local -a right_parts=()
+    local max_len=0
+    local i left_part right_part
+
+    left_version="$(normalize_version "$1")"
+    right_version="$(normalize_version "$2")"
+
+    IFS='.' read -r -a left_parts <<< "$left_version"
+    IFS='.' read -r -a right_parts <<< "$right_version"
+
+    max_len="${#left_parts[@]}"
+    if (( ${#right_parts[@]} > max_len )); then
+        max_len="${#right_parts[@]}"
+    fi
+
+    for ((i = 0; i < max_len; i++)); do
+        left_part="${left_parts[i]:-0}"
+        right_part="${right_parts[i]:-0}"
+
+        left_part="${left_part//[^0-9]/}"
+        right_part="${right_part//[^0-9]/}"
+
+        [[ -z "$left_part" ]] && left_part=0
+        [[ -z "$right_part" ]] && right_part=0
+
+        if ((10#$left_part > 10#$right_part)); then
+            echo 1
+            return 0
+        fi
+
+        if ((10#$left_part < 10#$right_part)); then
+            echo -1
+            return 0
+        fi
+    done
+
+    echo 0
+}
+
+get_latest_release_version() {
+    local response latest_version
+
+    if [[ -n "${CODE_NOTIFY_LATEST_VERSION:-}" ]]; then
+        normalize_version "$CODE_NOTIFY_LATEST_VERSION"
+        return 0
+    fi
+
+    if ! command -v curl >/dev/null 2>&1; then
+        return 1
+    fi
+
+    response="$(curl -fsSL "$CODE_NOTIFY_RELEASES_API" 2>/dev/null)" || return 1
+    latest_version="$(printf '%s\n' "$response" | grep -m1 '"tag_name"' | sed -E 's/.*"tag_name"[[:space:]]*:[[:space:]]*"v?([^"]+)".*/\1/')"
+
+    [[ -n "$latest_version" ]] || return 1
+    normalize_version "$latest_version"
+}
+
+print_update_status() {
+    local current_version="$1"
+    local latest_version="$2"
+    local comparison="$3"
+
+    info "Current version: $current_version"
+    info "Latest release: $latest_version"
+
+    case "$comparison" in
+        -1)
+            warning "Update available: $current_version -> $latest_version"
+            ;;
+        0)
+            success "Already up to date"
+            ;;
+        1)
+            info "Installed version is newer than the latest release"
             ;;
     esac
 }
@@ -107,11 +203,22 @@ run_update_for_method() {
 
 # Show update guidance without changing the current installation.
 check_for_updates() {
-    local method
-    method=$(detect_update_method)
+    local method="${1:-$(detect_update_method)}"
+    local current_version latest_version comparison
 
     echo ""
     info "Checking for updates..."
+    current_version="$(normalize_version "${VERSION:-unknown}")"
+
+    if [[ "$method" != "manual" ]]; then
+        if latest_version="$(get_latest_release_version)"; then
+            comparison="$(compare_versions "$current_version" "$latest_version")"
+            print_update_status "$current_version" "$latest_version" "$comparison"
+        else
+            info "Current version: $current_version"
+            warning "Could not determine the latest release"
+        fi
+    fi
 
     case "$method" in
         "homebrew")
@@ -137,6 +244,7 @@ check_for_updates() {
 handle_update_command() {
     local subcommand="${1:-run}"
     local method
+    local current_version latest_version comparison
 
     case "$subcommand" in
         "check"|"status"|"--check")
@@ -167,6 +275,21 @@ handle_update_command() {
                     return 1
                     ;;
             esac
+
+            current_version="$(normalize_version "${VERSION:-unknown}")"
+            if latest_version="$(get_latest_release_version)"; then
+                comparison="$(compare_versions "$current_version" "$latest_version")"
+                print_update_status "$current_version" "$latest_version" "$comparison"
+
+                case "$comparison" in
+                    0|1)
+                        return 0
+                        ;;
+                esac
+            else
+                info "Current version: $current_version"
+                warning "Could not determine the latest release; proceeding with update"
+            fi
 
             if ! run_update_for_method "$method"; then
                 error "Failed to update code-notify"

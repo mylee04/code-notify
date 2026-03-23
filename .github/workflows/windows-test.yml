@@ -119,11 +119,30 @@ jobs:
 
     - name: Test update check command
       run: |
+        $currentVersion = ((& "$env:USERPROFILE\.code-notify\bin\cn.ps1" version | Out-String).Trim() -replace '^.*version\s+', '')
+        $env:CODE_NOTIFY_LATEST_VERSION = $currentVersion
         $updateOutput = & "$env:USERPROFILE\.code-notify\bin\cn.ps1" update check | Out-String
         Write-Host $updateOutput
 
+        if ($updateOutput -notmatch 'Already up to date') {
+          Write-Host "ERROR: update check did not report the install as current" -ForegroundColor Red
+          exit 1
+        }
+
         if ($updateOutput -notmatch 'install-windows\.ps1') {
           Write-Host "ERROR: update check did not point to the Windows installer" -ForegroundColor Red
+          exit 1
+        }
+
+    - name: Test no-op update command
+      run: |
+        $currentVersion = ((& "$env:USERPROFILE\.code-notify\bin\cn.ps1" version | Out-String).Trim() -replace '^.*version\s+', '')
+        $env:CODE_NOTIFY_LATEST_VERSION = $currentVersion
+        $updateOutput = & "$env:USERPROFILE\.code-notify\bin\cn.ps1" update | Out-String
+        Write-Host $updateOutput
+
+        if ($updateOutput -notmatch 'Already up to date') {
+          Write-Host "ERROR: update command did not skip reinstalling the current version" -ForegroundColor Red
           exit 1
         }
 

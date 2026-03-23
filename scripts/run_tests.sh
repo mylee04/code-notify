@@ -33,6 +33,7 @@ test_fail() {
 
 # Change to project root
 cd "$(dirname "$0")/.."
+CURRENT_VERSION="$(awk -F'"' '/^VERSION=/{print $2}' bin/code-notify)"
 
 # Test 1: Main executable exists and is executable
 test_start "main executable exists"
@@ -103,10 +104,18 @@ fi
 
 # Test 8: update check command works
 test_start "update check command"
-if ./bin/code-notify update check 2>&1 | grep -q "Checking for updates"; then
+if CODE_NOTIFY_INSTALL_METHOD=script CODE_NOTIFY_LATEST_VERSION="$CURRENT_VERSION" ./bin/code-notify update check 2>&1 | grep -q "Already up to date"; then
     test_pass
 else
     test_fail "update check command failed"
+fi
+
+# Test 9: update command skips reinstalling current versions
+test_start "no-op update command"
+if CODE_NOTIFY_INSTALL_METHOD=script CODE_NOTIFY_LATEST_VERSION="$CURRENT_VERSION" ./bin/code-notify update 2>&1 | grep -q "Already up to date"; then
+    test_pass
+else
+    test_fail "update command did not skip reinstalling the current version"
 fi
 
 # Summary

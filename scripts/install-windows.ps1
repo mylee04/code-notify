@@ -19,7 +19,7 @@ param(
 $ErrorActionPreference = "Stop"
 
 # Version
-$VERSION = "1.6.4"
+$VERSION = "1.6.5"
 
 # Colors and formatting
 function Write-Success { param([string]$Message) Write-Host "[OK] $Message" -ForegroundColor Green }
@@ -105,7 +105,7 @@ function Install-ClaudeNotify {
 # Code-Notify PowerShell Module
 # https://github.com/mylee04/code-notify
 
-$script:VERSION = "1.6.4"
+$script:VERSION = "1.6.5"
 $script:ClaudeHome = "$env:USERPROFILE\.claude"
 $script:SettingsFile = "$script:ClaudeHome\settings.json"
 $script:NotificationsDir = "$script:ClaudeHome\notifications"
@@ -914,25 +914,168 @@ function Get-UpdateCommand {
     return "irm https://raw.githubusercontent.com/mylee04/code-notify/main/scripts/install-windows.ps1 | iex"
 }
 
+function Normalize-Version {
+    param([string]$Version)
+
+    if ([string]::IsNullOrWhiteSpace($Version)) {
+        return $null
+    }
+
+    return (($Version.Trim()) -replace '^[vV]', '')
+}
+
+function Compare-Version {
+    param(
+        [string]$CurrentVersion,
+        [string]$LatestVersion
+    )
+
+    $current = Normalize-Version $CurrentVersion
+    $latest = Normalize-Version $LatestVersion
+
+    try {
+        $currentVersionObject = [version]$current
+        $latestVersionObject = [version]$latest
+
+        if ($currentVersionObject -lt $latestVersionObject) {
+            return -1
+        }
+
+        if ($currentVersionObject -gt $latestVersionObject) {
+            return 1
+        }
+
+        return 0
+    }
+    catch {
+        $currentParts = $current.Split('.')
+        $latestParts = $latest.Split('.')
+        $maxParts = [Math]::Max($currentParts.Count, $latestParts.Count)
+
+        for ($i = 0; $i -lt $maxParts; $i++) {
+            $currentDigits = if ($i -lt $currentParts.Count) { ($currentParts[$i] -replace '[^\d]', '') } else { '' }
+            $latestDigits = if ($i -lt $latestParts.Count) { ($latestParts[$i] -replace '[^\d]', '') } else { '' }
+
+            $currentPart = if ([string]::IsNullOrWhiteSpace($currentDigits)) { 0 } else { [int]$currentDigits }
+            $latestPart = if ([string]::IsNullOrWhiteSpace($latestDigits)) { 0 } else { [int]$latestDigits }
+
+            if ($currentPart -lt $latestPart) {
+                return -1
+            }
+
+            if ($currentPart -gt $latestPart) {
+                return 1
+            }
+        }
+
+        return 0
+    }
+}
+
+function Get-LatestReleaseVersion {
+    if ($env:CODE_NOTIFY_LATEST_VERSION) {
+        return Normalize-Version $env:CODE_NOTIFY_LATEST_VERSION
+    }
+
+    try {
+        $release = Invoke-RestMethod -Uri "https://api.github.com/repos/mylee04/code-notify/releases/latest" -Headers @{ "User-Agent" = "code-notify" }
+        if ($release.tag_name) {
+            return Normalize-Version $release.tag_name
+        }
+    }
+    catch {
+        return $null
+    }
+
+    return $null
+}
+
+function Get-UpdateStatus {
+    $currentVersion = Normalize-Version $script:VERSION
+    $latestVersion = Get-LatestReleaseVersion
+
+    if (-not $latestVersion) {
+        return [PSCustomObject]@{
+            CurrentVersion = $currentVersion
+            LatestVersion = $null
+            Comparison = $null
+        }
+    }
+
+    return [PSCustomObject]@{
+        CurrentVersion = $currentVersion
+        LatestVersion = $latestVersion
+        Comparison = (Compare-Version -CurrentVersion $currentVersion -LatestVersion $latestVersion)
+    }
+}
+
+function Write-UpdateStatus {
+    param(
+        [Parameter(Mandatory = $true)]
+        [pscustomobject]$Status
+    )
+
+    Write-Output "[i] Current version: $($Status.CurrentVersion)"
+
+    if (-not $Status.LatestVersion) {
+        Write-Output "[!] Could not determine the latest release"
+        return
+    }
+
+    Write-Output "[i] Latest release: $($Status.LatestVersion)"
+
+    switch ($Status.Comparison) {
+        -1 { Write-Output "[!] Update available: $($Status.CurrentVersion) -> $($Status.LatestVersion)" }
+        0 { Write-Output "[OK] Already up to date" }
+        1 { Write-Output "[i] Installed version is newer than the latest release" }
+    }
+}
+
 function Update-CodeNotify {
     param(
         [switch]$Check
     )
 
     $updateCommand = Get-UpdateCommand
+    $updateStatus = Get-UpdateStatus
 
     if ($Check) {
         Write-Output ""
         Write-Output "[i] Checking for updates..."
+        Write-UpdateStatus -Status $updateStatus
         Write-Output "To update code-notify, run:"
         Write-Output "  $updateCommand"
         return
+    }
+
+    if ($updateStatus.LatestVersion) {
+        if ($updateStatus.Comparison -eq 0) {
+            Write-Output ""
+            Write-Output "[i] Checking for updates..."
+            Write-UpdateStatus -Status $updateStatus
+            return
+        }
+
+        if ($updateStatus.Comparison -eq 1) {
+            Write-Output ""
+            Write-Output "[i] Checking for updates..."
+            Write-UpdateStatus -Status $updateStatus
+            return
+        }
     }
 
     Write-Host "`n[>] Updating Code-Notify" -ForegroundColor Cyan
     $tempScript = Join-Path $env:TEMP "code-notify-update.ps1"
 
     try {
+        if (-not $updateStatus.LatestVersion) {
+            Write-Warning "Could not determine the latest release; proceeding with update"
+        } else {
+            Write-Info "Current version: $($updateStatus.CurrentVersion)"
+            Write-Info "Latest release: $($updateStatus.LatestVersion)"
+            Write-Info "Update available: $($updateStatus.CurrentVersion) -> $($updateStatus.LatestVersion)"
+        }
+
         Invoke-WebRequest -UseBasicParsing -Uri "https://raw.githubusercontent.com/mylee04/code-notify/main/scripts/install-windows.ps1" -OutFile $tempScript
         & $tempScript -Silent -Force
         Write-Success "Update complete!"
@@ -962,7 +1105,7 @@ COMMANDS:
     off [tool]      Disable notifications globally or for a specific tool
     status [tool]   Show notification status
     test            Send a test notification
-    update [check]  Update code-notify or show the update method
+    update [check]  Update code-notify or check the latest release
     voice on        Enable voice notifications
     voice off       Disable voice notifications
     help            Show this help message
@@ -994,7 +1137,7 @@ EXAMPLES:
     cn off gemini             # Disable Gemini notifications
     cnp on                    # Enable Claude project notifications
     cn test                   # Send test notification
-    cn update check           # Show how this installation should be updated
+    cn update check           # Check whether an update is needed and show the update command
     cn sound on               # Enable notification sounds
     cn sound set C:\sounds\ding.wav  # Use custom sound
 

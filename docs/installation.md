@@ -140,7 +140,7 @@ cd code-notify
 | `cn test`     | Send test notification          |
 | `cn status`   | Check current status            |
 | `cn update`   | Update code-notify              |
-| `cn update check` | Show the update method     |
+| `cn update check` | Check the latest release and show the update command |
 | `cn voice on` | Enable voice (macOS)            |
 | `cnp on`      | Enable for current project only |
 
