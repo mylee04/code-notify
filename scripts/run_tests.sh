@@ -118,6 +118,14 @@ else
     test_fail "update command did not skip reinstalling the current version"
 fi
 
+# Test 10: project enable warns when Claude trust is missing
+test_start "project trust warning"
+if bash tests/test-project-trust-warning.sh >/dev/null 2>&1; then
+    test_pass
+else
+    test_fail "project trust warning behavior failed"
+fi
+
 # Summary
 echo ""
 echo "Test Summary:"

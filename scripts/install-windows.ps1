@@ -238,6 +238,59 @@ function Get-ProjectRoot {
     return (Get-Location).Path
 }
 
+function Get-ClaudeTrustFile {
+    if ($env:CODE_NOTIFY_CLAUDE_TRUST_FILE) {
+        return $env:CODE_NOTIFY_CLAUDE_TRUST_FILE
+    }
+
+    return "$env:USERPROFILE\.claude.json"
+}
+
+function Test-ClaudeProjectTrusted {
+    param(
+        [string]$ProjectRoot = (Get-ProjectRoot)
+    )
+
+    $trustFile = Get-ClaudeTrustFile
+    if (-not (Test-Path $trustFile)) {
+        return $null
+    }
+
+    try {
+        $trustConfig = Get-Content $trustFile -Raw | ConvertFrom-Json -ErrorAction Stop
+    }
+    catch {
+        return $null
+    }
+
+    if (-not $trustConfig -or -not $trustConfig.projects) {
+        return $false
+    }
+
+    $projectEntry = $trustConfig.projects.PSObject.Properties[$ProjectRoot]
+    if ($projectEntry -and $projectEntry.Value.hasTrustDialogAccepted -eq $true) {
+        return $true
+    }
+
+    return $false
+}
+
+function Write-ClaudeProjectTrustWarning {
+    param(
+        [string]$ProjectRoot = (Get-ProjectRoot)
+    )
+
+    $isTrusted = Test-ClaudeProjectTrusted -ProjectRoot $ProjectRoot
+    if ($null -eq $isTrusted -or $isTrusted) {
+        return
+    }
+
+    Write-Output ""
+    Write-Output "[!] Claude project trust does not appear to be accepted for this project yet"
+    Write-Output "[i] Project hooks are configured, but Claude may ignore project settings until this project is trusted"
+    Write-Output "[i] Open Claude Code in $ProjectRoot and accept the trust prompt if it appears"
+}
+
 function Send-Notification {
     param(
         [string]$Title = "Claude Code",
@@ -663,6 +716,9 @@ function Enable-Notifications {
 
             Write-Success "$toolDisplay notifications enabled!"
             Write-Info "Config: $settingsFile"
+            if ($Project) {
+                Write-ClaudeProjectTrustWarning -ProjectRoot $projectRoot
+            }
             Send-Notification -Title "Code-Notify" -Message "$toolDisplay notifications enabled!" -Type "success"
         }
     }
