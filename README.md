@@ -11,7 +11,7 @@ Desktop notifications for AI coding tools - get alerts when tasks complete or in
   <img src="assets/multi-tools-support-02.png" width="48%" alt="All tools enabled"/>
 </p>
 
-[![Version](https://img.shields.io/badge/version-1.6.3-blue.svg)](https://github.com/mylee04/code-notify/releases)
+[![Version](https://img.shields.io/badge/version-1.6.4-blue.svg)](https://github.com/mylee04/code-notify/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![macOS](https://img.shields.io/badge/macOS-supported-green.svg)](https://www.apple.com/macos)
 [![Linux](https://img.shields.io/badge/Linux-supported-green.svg)](https://www.linux.org/)
@@ -19,12 +19,12 @@ Desktop notifications for AI coding tools - get alerts when tasks complete or in
 
 ---
 
-## What's New in v1.6.3
+## What's New in v1.6.4
 
-- **Codex TOML placement fixed**: `cn on codex` now writes `notify = [...]` at the TOML top level instead of appending it under the last table in non-empty `~/.codex/config.toml`
-- **Windows Codex config fixed too**: the PowerShell installer now applies the same top-level insertion logic, so Codex settings do not end up nested under `[features]`
-- **Misplaced Codex notify entries now repair cleanly**: rerunning `cn on codex` moves an older misplaced `notify` entry back to the top level without duplicating it
-- **Regression coverage added**: tests now exercise the exact non-empty Codex config scenario reported in issue `#32`
+- **`cn update` is now a real command**: Homebrew installs, script installs, and local checkouts now get the right update path, and `cn update check` shows exactly what will be used
+- **Duplicate sounds fixed**: macOS and Windows now use a single explicit sound playback path so one Claude/Codex/Gemini event does not trigger multiple sounds
+- **Windows update-check output fixed**: the PowerShell command now writes its guidance to the pipeline so automated checks and scripts can read it correctly
+- **Regression coverage expanded**: tests now cover update-command routing, single-play sound behavior, and the Windows installer update-check path
 
 ---
 

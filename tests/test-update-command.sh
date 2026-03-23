@@ -12,7 +12,7 @@ source "$SCRIPT_DIR/../lib/code-notify/utils/detect.sh"
 source "$SCRIPT_DIR/../lib/code-notify/core/config.sh"
 source "$SCRIPT_DIR/../lib/code-notify/commands/global.sh"
 
-homebrew_method=$(detect_update_method "/opt/homebrew/Cellar/code-notify/1.6.3/lib/code-notify/commands")
+homebrew_method=$(detect_update_method "/opt/homebrew/Cellar/code-notify/1.6.4/lib/code-notify/commands")
 [[ "$homebrew_method" == "homebrew" ]] || fail "expected homebrew update method"
 pass "detects Homebrew installations"
 
