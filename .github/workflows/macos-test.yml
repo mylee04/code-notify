@@ -152,6 +152,21 @@ jobs:
         # Test status
         cn status
 
+    - name: Test update check command
+      run: |
+        export PATH="$HOME/.local/bin:$PATH"
+        UPDATE_OUTPUT="$(cn update check)"
+        echo "$UPDATE_OUTPUT"
+
+        if ! echo "$UPDATE_OUTPUT" | grep -q 'scripts/install.sh'; then
+          echo "ERROR: update check did not point to the install script"
+          exit 1
+        fi
+
+    - name: Test macOS notifier sound path
+      run: |
+        bash tests/test-notifier-sound.sh
+
     - name: Test enable/disable notifications
       run: |
         export PATH="$HOME/.local/bin:$PATH"

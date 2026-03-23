@@ -117,6 +117,33 @@ jobs:
       run: |
         & "$env:USERPROFILE\.code-notify\bin\cn.ps1" status
 
+    - name: Test update check command
+      run: |
+        $updateOutput = & "$env:USERPROFILE\.code-notify\bin\cn.ps1" update check | Out-String
+        Write-Host $updateOutput
+
+        if ($updateOutput -notmatch 'install-windows\.ps1') {
+          Write-Host "ERROR: update check did not point to the Windows installer" -ForegroundColor Red
+          exit 1
+        }
+
+    - name: Verify notifier uses explicit sound playback
+      run: |
+        $notifyScript = "$env:USERPROFILE\.claude\notifications\notify.ps1"
+        $notifyContent = Get-Content $notifyScript -Raw
+
+        if ($notifyContent -match 'Notification\.Default') {
+          Write-Host "ERROR: notify.ps1 still requests the default toast sound" -ForegroundColor Red
+          exit 1
+        }
+
+        if ($notifyContent -notmatch '<audio silent="true"/>') {
+          Write-Host "ERROR: notify.ps1 is not explicitly silent" -ForegroundColor Red
+          exit 1
+        }
+
+        Write-Host "OK: notify.ps1 keeps toast audio silent and uses explicit sound playback" -ForegroundColor Green
+
     - name: Test enable/disable notifications
       run: |
         # Enable

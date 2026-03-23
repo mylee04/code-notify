@@ -910,6 +910,42 @@ function Send-TestNotification {
     }
 }
 
+function Get-UpdateCommand {
+    return "irm https://raw.githubusercontent.com/mylee04/code-notify/main/scripts/install-windows.ps1 | iex"
+}
+
+function Update-CodeNotify {
+    param(
+        [switch]$Check
+    )
+
+    $updateCommand = Get-UpdateCommand
+
+    if ($Check) {
+        Write-Host "`n[i] Checking for updates..." -ForegroundColor Cyan
+        Write-Host "To update code-notify, run:" -ForegroundColor White
+        Write-Host "  $updateCommand" -ForegroundColor Gray
+        return
+    }
+
+    Write-Host "`n[>] Updating Code-Notify" -ForegroundColor Cyan
+    $tempScript = Join-Path $env:TEMP "code-notify-update.ps1"
+
+    try {
+        Invoke-WebRequest -UseBasicParsing -Uri "https://raw.githubusercontent.com/mylee04/code-notify/main/scripts/install-windows.ps1" -OutFile $tempScript
+        & $tempScript -Silent -Force
+        Write-Success "Update complete!"
+        Write-Info "Run 'code-notify version' in a new shell to confirm the installed version"
+    }
+    catch {
+        Write-Host "[X] Failed to update code-notify: $($_.Exception.Message)" -ForegroundColor Red
+        throw
+    }
+    finally {
+        Remove-Item $tempScript -Force -ErrorAction SilentlyContinue
+    }
+}
+
 function Show-Help {
     Write-Host @"
 
@@ -925,6 +961,7 @@ COMMANDS:
     off [tool]      Disable notifications globally or for a specific tool
     status [tool]   Show notification status
     test            Send a test notification
+    update [check]  Update code-notify or show the update method
     voice on        Enable voice notifications
     voice off       Disable voice notifications
     help            Show this help message
@@ -956,6 +993,7 @@ EXAMPLES:
     cn off gemini             # Disable Gemini notifications
     cnp on                    # Enable Claude project notifications
     cn test                   # Send test notification
+    cn update check           # Show how this installation should be updated
     cn sound on               # Enable notification sounds
     cn sound set C:\sounds\ding.wav  # Use custom sound
 
@@ -1003,6 +1041,13 @@ function Invoke-CodeNotify {
             }
         }
         "test" { Send-TestNotification }
+        "update" {
+            if ($SubCommand -eq "check") {
+                Update-CodeNotify -Check
+            } else {
+                Update-CodeNotify
+            }
+        }
         "voice" {
             switch ($SubCommand) {
                 "on" { Enable-Voice }
@@ -1083,6 +1128,7 @@ Export-ModuleMember -Function @(
     'Get-SystemSounds',
     'Show-SoundStatus',
     'Send-TestNotification',
+    'Update-CodeNotify',
     'Show-Help'
 )
 '@
@@ -1286,6 +1332,10 @@ function Send-DesktopNotification {
             Text = $Title, $Message
             ErrorAction = 'SilentlyContinue'
         }
+        $burntToastCommand = Get-Command New-BurntToastNotification -ErrorAction SilentlyContinue
+        if ($burntToastCommand -and $burntToastCommand.Parameters.ContainsKey('Silent')) {
+            $toastParams['Silent'] = $true
+        }
 
         # Add activation if we have a terminal handle
         if ($terminalHandle) {
@@ -1311,7 +1361,7 @@ function Send-DesktopNotification {
             <text id="2">$Message</text>
         </binding>
     </visual>
-    <audio src="ms-winsoundevent:Notification.Default"/>
+    <audio silent="true"/>
 </toast>
 "@
         $xml = New-Object Windows.Data.Xml.Dom.XmlDocument

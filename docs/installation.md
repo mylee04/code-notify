@@ -139,6 +139,8 @@ cd code-notify
 | `cn off`      | Disable notifications           |
 | `cn test`     | Send test notification          |
 | `cn status`   | Check current status            |
+| `cn update`   | Update code-notify              |
+| `cn update check` | Show the update method     |
 | `cn voice on` | Enable voice (macOS)            |
 | `cnp on`      | Enable for current project only |
 

@@ -55,8 +55,7 @@ cn on
 **macOS (Homebrew, Already Installed)**
 
 ```bash
-brew update
-brew upgrade code-notify
+cn update
 code-notify version
 ```
 
@@ -100,6 +99,8 @@ curl -s https://raw.githubusercontent.com/mylee04/code-notify/main/docs/installa
 | `cn off`             | Disable notifications                        |
 | `cn test`            | Send test notification                       |
 | `cn status`          | Show current status                          |
+| `cn update`          | Update code-notify                           |
+| `cn update check`    | Show which update command will be used       |
 | `cn alerts`          | Configure which events trigger notifications |
 | `cn sound on`        | Enable sound notifications                   |
 | `cn sound set <path>`| Use custom sound file                        |

@@ -22,6 +22,7 @@ ${BOLD}COMMANDS:${RESET}
     ${GREEN}off${RESET} <tool>      Disable for specific tool
     ${GREEN}status${RESET}          Show status for all tools
     ${GREEN}test${RESET}            Send a test notification
+    ${GREEN}update${RESET} [check]  Update code-notify or show the update method
     ${GREEN}alerts${RESET} <cmd>    Configure which events trigger alerts
     ${GREEN}voice${RESET} <cmd>     Voice notification commands
     ${GREEN}setup${RESET}           Run initial setup wizard
@@ -72,6 +73,7 @@ ${BOLD}EXAMPLES:${RESET}
     cn off                  # Disable all
     cn status               # Show status for all tools
     cn test                 # Send test notification
+    cn update check         # Show how this installation should be updated
     cn alerts               # Show alert type config
     cn alerts add permission_prompt  # Also notify on permission requests
     cn alerts reset         # Back to idle_prompt only (less noisy)

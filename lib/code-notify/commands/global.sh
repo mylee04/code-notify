@@ -26,6 +26,9 @@ handle_global_command() {
         "test")
             test_notification "$@"
             ;;
+        "update")
+            handle_update_command "$@"
+            ;;
         "setup")
             run_setup_wizard "$@"
             ;;
@@ -47,6 +50,131 @@ handle_global_command() {
         *)
             error "Unknown command: $command"
             exit 1
+            ;;
+    esac
+}
+
+# Detect how the current code-notify command was installed.
+detect_update_method() {
+    local source_dir="${1:-$GLOBAL_CMD_DIR}"
+
+    case "$source_dir" in
+        /opt/homebrew/Cellar/code-notify/*|/usr/local/Cellar/code-notify/*|/opt/homebrew/opt/code-notify/*|/usr/local/opt/code-notify/*)
+            echo "homebrew"
+            ;;
+        "$HOME"/.code-notify/lib/code-notify/*)
+            echo "script"
+            ;;
+        *)
+            echo "manual"
+            ;;
+    esac
+}
+
+# Return the user-facing update command for a specific install method.
+get_update_command() {
+    local method="${1:-$(detect_update_method)}"
+
+    case "$method" in
+        "homebrew")
+            echo "brew update && brew upgrade code-notify"
+            ;;
+        "script")
+            echo "curl -fsSL https://raw.githubusercontent.com/mylee04/code-notify/main/scripts/install.sh | bash"
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+# Run the update command for a specific install method.
+run_update_for_method() {
+    local method="$1"
+
+    case "$method" in
+        "homebrew")
+            brew update && brew upgrade code-notify
+            ;;
+        "script")
+            curl -fsSL https://raw.githubusercontent.com/mylee04/code-notify/main/scripts/install.sh | bash
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+# Show update guidance without changing the current installation.
+check_for_updates() {
+    local method
+    method=$(detect_update_method)
+
+    echo ""
+    info "Checking for updates..."
+
+    case "$method" in
+        "homebrew")
+            info "Install method: Homebrew"
+            echo "To update code-notify, run:"
+            echo "  ${CYAN}$(get_update_command "$method")${RESET}"
+            ;;
+        "script")
+            info "Install method: install script"
+            echo "To update code-notify, run:"
+            echo "  ${CYAN}$(get_update_command "$method")${RESET}"
+            ;;
+        *)
+            warning "Local checkout or unsupported install method detected"
+            echo "Update manually:"
+            echo "  ${CYAN}git pull${RESET}"
+            echo "  ${CYAN}https://github.com/mylee04/code-notify${RESET}"
+            ;;
+    esac
+}
+
+# Handle update commands
+handle_update_command() {
+    local subcommand="${1:-run}"
+    local method
+
+    case "$subcommand" in
+        "check"|"status"|"--check")
+            check_for_updates
+            ;;
+        "help"|"-h"|"--help")
+            echo "Usage: cn update [check]"
+            echo "  cn update        Update the current installation"
+            echo "  cn update check  Show which update command will be used"
+            ;;
+        *)
+            method=$(detect_update_method)
+
+            echo ""
+            header "${ROCKET} Updating Code-Notify"
+            echo ""
+
+            case "$method" in
+                "homebrew")
+                    info "Detected Homebrew installation"
+                    ;;
+                "script")
+                    info "Detected install-script installation"
+                    ;;
+                *)
+                    warning "Local checkout or unsupported install method detected"
+                    info "Use ${CYAN}cn update check${RESET} for guidance"
+                    return 1
+                    ;;
+            esac
+
+            if ! run_update_for_method "$method"; then
+                error "Failed to update code-notify"
+                return 1
+            fi
+
+            success "Update complete!"
+            info "Run ${CYAN}code-notify version${RESET} to confirm the installed version"
             ;;
     esac
 }
@@ -510,26 +638,6 @@ run_setup_wizard() {
     echo "  ${CYAN}cn status${RESET} - Check status"
     echo "  ${CYAN}cnp on${RESET}    - Enable for current project"
     echo ""
-}
-
-# Check for updates (basic implementation)
-check_for_updates() {
-    echo ""
-    info "Checking for updates..."
-    # This would normally check GitHub releases API
-    # For now, just show how to update
-    echo "To update code-notify, run:"
-    case "$(detect_os)" in
-        macos)
-            echo "  ${CYAN}brew upgrade code-notify${RESET}"
-            ;;
-        linux|wsl)
-            echo "  ${CYAN}curl -fsSL https://raw.githubusercontent.com/anthropics/code-notify/main/install.sh | bash${RESET}"
-            ;;
-        *)
-            echo "  See: ${CYAN}https://github.com/anthropics/code-notify${RESET}"
-            ;;
-    esac
 }
 
 # Handle voice commands

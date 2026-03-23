@@ -93,6 +93,22 @@ else
     test_fail "syntax errors found"
 fi
 
+# Test 7: update command is exposed in help
+test_start "update command in help"
+if ./bin/code-notify help 2>&1 | grep -q "update"; then
+    test_pass
+else
+    test_fail "update command missing from help"
+fi
+
+# Test 8: update check command works
+test_start "update check command"
+if ./bin/code-notify update check 2>&1 | grep -q "Checking for updates"; then
+    test_pass
+else
+    test_fail "update check command failed"
+fi
+
 # Summary
 echo ""
 echo "Test Summary:"

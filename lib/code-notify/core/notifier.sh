@@ -190,26 +190,19 @@ send_macos_notification() {
     bundle_id=$(get_terminal_bundle_id)
 
     if command -v terminal-notifier &> /dev/null; then
-        # Only pass -sound if sound is enabled; terminal-notifier always plays sound when -sound is set
-        local sound_args=()
-        if should_play_sound; then
-            sound_args=(-sound "$SOUND")
-        fi
+        # Keep desktop notifications silent and let play_sound() own audio playback.
+        # That avoids double audio and preserves custom sound files.
         terminal-notifier \
             -title "$TITLE" \
             -subtitle "$SUBTITLE" \
             -message "$MESSAGE" \
-            "${sound_args[@]}" \
             -group "code-notify-$TOOL_NAME-$PROJECT_NAME" \
             -activate "$bundle_id" \
             2>/dev/null
     else
-        # osascript doesn't support click-to-activate, but we can use a workaround
-        if should_play_sound; then
-            osascript -e "display notification \"$MESSAGE\" with title \"$TITLE\" subtitle \"$SUBTITLE\" sound name \"$SOUND\"" 2>/dev/null
-        else
-            osascript -e "display notification \"$MESSAGE\" with title \"$TITLE\" subtitle \"$SUBTITLE\"" 2>/dev/null
-        fi
+        # osascript doesn't support click-to-activate, but we can use a workaround.
+        # Keep this silent too so custom/default sound playback stays single-sourced.
+        osascript -e "display notification \"$MESSAGE\" with title \"$TITLE\" subtitle \"$SUBTITLE\"" 2>/dev/null
     fi
 }
 

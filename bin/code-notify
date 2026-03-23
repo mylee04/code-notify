@@ -48,7 +48,7 @@ case "$COMMAND_NAME" in
             "version"|"-v"|"--version")
                 show_version
                 ;;
-            "on"|"off"|"status"|"test"|"setup"|"voice"|"sound"|"alerts")
+            "on"|"off"|"status"|"test"|"setup"|"voice"|"sound"|"alerts"|"update")
                 source "$LIB_DIR/commands/global.sh"
                 handle_global_command "$@"
                 ;;
@@ -69,7 +69,7 @@ case "$COMMAND_NAME" in
     "code-notify"|*)
         # Called as 'code-notify' - full command parsing
         case "${1:-help}" in
-            "on"|"off"|"status"|"test"|"setup"|"voice"|"sound"|"alerts")
+            "on"|"off"|"status"|"test"|"setup"|"voice"|"sound"|"alerts"|"update")
                 source "$LIB_DIR/commands/global.sh"
                 handle_global_command "$@"
                 ;;
