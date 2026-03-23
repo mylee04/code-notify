@@ -108,6 +108,8 @@ curl -s https://raw.githubusercontent.com/mylee04/code-notify/main/docs/installa
 | `cn voice on claude` | Enable voice for Claude only                 |
 | `cnp on`             | Enable for current project only              |
 
+When enabling project notifications with `cnp on`, Code-Notify warns if Claude project trust does not appear to be accepted yet.
+
 ## How It Works
 
 Code-Notify uses the hook systems built into AI coding tools:

@@ -62,6 +62,8 @@ cnp on        # Enable for this project
 cnp status    # Verify
 ```
 
+If Claude Code has not trusted the project yet, `cnp on` will warn that Claude may ignore project settings until the trust prompt is accepted.
+
 ### Troubleshooting
 
 If `cn` command not found:

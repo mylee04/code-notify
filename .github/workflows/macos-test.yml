@@ -227,9 +227,26 @@ jobs:
         git init
         git config user.email "test@test.com"
         git config user.name "Test"
+        PROJECT_ROOT="$(git rev-parse --show-toplevel)"
+
+        cat > "$HOME/.claude.json" <<EOF
+        {
+          "projects": {
+            "$PROJECT_ROOT": {
+              "hasTrustDialogAccepted": false
+            }
+          }
+        }
+        EOF
 
         # Enable project notifications
-        cnp on
+        PROJECT_OUTPUT="$(cnp on)"
+        echo "$PROJECT_OUTPUT"
+
+        if ! echo "$PROJECT_OUTPUT" | grep -q 'trust does not appear to be accepted'; then
+          echo "ERROR: Project trust warning was not shown"
+          exit 1
+        fi
 
         # Check project settings created
         if [[ ! -f "$TEST_PROJECT/.claude/settings.json" ]]; then

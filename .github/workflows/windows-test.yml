@@ -230,8 +230,23 @@ jobs:
         git config user.email "test@test.com"
         git config user.name "Test"
 
+        $trustConfig = @{
+          projects = @{
+            $testProject = @{
+              hasTrustDialogAccepted = $false
+            }
+          }
+        }
+        $trustConfig | ConvertTo-Json -Depth 10 | Set-Content "$env:USERPROFILE\.claude.json" -Encoding UTF8
+
         # Enable project notifications
-        & "$env:USERPROFILE\.code-notify\bin\cnp.ps1" on
+        $projectOutput = & "$env:USERPROFILE\.code-notify\bin\cnp.ps1" on | Out-String
+        Write-Host $projectOutput
+
+        if ($projectOutput -notmatch 'trust does not appear to be accepted') {
+          Write-Host "ERROR: Project trust warning was not shown" -ForegroundColor Red
+          exit 1
+        }
 
         # Check project settings created
         if (-not (Test-Path "$testProject\.claude\settings.json")) {

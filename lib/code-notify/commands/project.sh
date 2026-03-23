@@ -36,6 +36,80 @@ handle_project_command() {
     esac
 }
 
+get_claude_trust_file() {
+    echo "${CODE_NOTIFY_CLAUDE_TRUST_FILE:-$HOME/.claude.json}"
+}
+
+is_claude_project_trusted() {
+    local project_root="${1:-$(get_project_root 2>/dev/null || echo "$PWD")}"
+    local trust_file
+    trust_file="$(get_claude_trust_file)"
+
+    if [[ ! -f "$trust_file" ]]; then
+        return 2
+    fi
+
+    if has_jq; then
+        jq empty "$trust_file" >/dev/null 2>&1 || return 2
+        jq -e --arg project "$project_root" '.projects[$project].hasTrustDialogAccepted == true' "$trust_file" >/dev/null 2>&1
+        return $?
+    fi
+
+    if has_python3; then
+        python3 - "$trust_file" "$project_root" <<'PY'
+import json
+import sys
+
+trust_file = sys.argv[1]
+project_root = sys.argv[2]
+
+try:
+    with open(trust_file, encoding="utf-8") as fh:
+        data = json.load(fh)
+except Exception:
+    raise SystemExit(2)
+
+projects = data.get("projects")
+if not isinstance(projects, dict):
+    raise SystemExit(2)
+
+entry = projects.get(project_root)
+if isinstance(entry, dict) and entry.get("hasTrustDialogAccepted") is True:
+    raise SystemExit(0)
+
+raise SystemExit(1)
+PY
+        return $?
+    fi
+
+    return 2
+}
+
+warn_if_claude_project_untrusted() {
+    local project_root="${1:-$(get_project_root 2>/dev/null || echo "$PWD")}"
+    local trust_status
+
+    if is_claude_project_trusted "$project_root"; then
+        trust_status=0
+    else
+        trust_status=$?
+    fi
+
+    if [[ $trust_status -eq 0 ]]; then
+        return 0
+    fi
+
+    if [[ $trust_status -ne 1 ]]; then
+        return 0
+    fi
+
+    echo ""
+    warning "Claude project trust does not appear to be accepted for this project yet"
+    info "Project hooks are configured, but Claude may ignore project settings until this project is trusted"
+    info "Open Claude Code in ${CYAN}$project_root${RESET} and accept the trust prompt if it appears"
+    return 0
+}
+
 # Enable notifications for current project
 enable_notifications_project() {
     local project_root=$(get_project_root)
@@ -71,6 +145,7 @@ enable_notifications_project() {
     
     success "Project notifications ENABLED"
     info "Config created at: $project_settings_file"
+    warn_if_claude_project_untrusted "$project_root"
     
     # Send test notification
     echo ""
