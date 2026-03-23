@@ -1232,7 +1232,7 @@ function Invoke-CodeNotify {
             }
         }
         "help" { Show-Help }
-        "version" { Write-Host "code-notify version $script:VERSION" }
+        "version" { Write-Output "code-notify version $script:VERSION" }
         default { Show-Help }
     }
 }
