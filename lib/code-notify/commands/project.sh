@@ -89,8 +89,11 @@ warn_if_claude_project_untrusted() {
     local project_root="${1:-$(get_project_root 2>/dev/null || echo "$PWD")}"
     local trust_status
 
-    is_claude_project_trusted "$project_root"
-    trust_status=$?
+    if is_claude_project_trusted "$project_root"; then
+        trust_status=0
+    else
+        trust_status=$?
+    fi
 
     if [[ $trust_status -eq 0 ]]; then
         return 0
@@ -104,6 +107,7 @@ warn_if_claude_project_untrusted() {
     warning "Claude project trust does not appear to be accepted for this project yet"
     info "Project hooks are configured, but Claude may ignore project settings until this project is trusted"
     info "Open Claude Code in ${CYAN}$project_root${RESET} and accept the trust prompt if it appears"
+    return 0
 }
 
 # Enable notifications for current project
