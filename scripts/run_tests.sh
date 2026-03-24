@@ -134,6 +134,22 @@ else
     test_fail "all aliases failed"
 fi
 
+# Test 12: npm launchers can route to the shell runtime
+test_start "npm launcher routing"
+if node ./bin/npm-cn.js version 2>&1 | grep -q "code-notify version"; then
+    test_pass
+else
+    test_fail "npm launcher version command failed"
+fi
+
+# Test 13: repeated notification states are deduped
+test_start "notification dedupe"
+if bash tests/test-notification-dedupe.sh >/dev/null 2>&1; then
+    test_pass
+else
+    test_fail "notification dedupe failed"
+fi
+
 # Summary
 echo ""
 echo "Test Summary:"

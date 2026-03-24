@@ -1,0 +1,41 @@
+{
+  "name": "code-notify",
+  "version": "1.6.7",
+  "description": "Desktop notifications for Claude Code, OpenAI Codex, and Gemini CLI",
+  "license": "MIT",
+  "homepage": "https://github.com/mylee04/code-notify#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mylee04/code-notify.git"
+  },
+  "bugs": {
+    "url": "https://github.com/mylee04/code-notify/issues"
+  },
+  "keywords": [
+    "ai",
+    "claude",
+    "codex",
+    "gemini",
+    "notifications",
+    "cli"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "bin": {
+    "code-notify": "./bin/npm-code-notify.js",
+    "cn": "./bin/npm-cn.js",
+    "cnp": "./bin/npm-cnp.js"
+  },
+  "files": [
+    "LICENSE",
+    "README.md",
+    "bin/",
+    "lib/",
+    "scripts/install-windows.ps1",
+    "scripts/npm-postinstall.js"
+  ],
+  "scripts": {
+    "postinstall": "node ./scripts/npm-postinstall.js"
+  }
+}

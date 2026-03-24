@@ -125,6 +125,13 @@ exec $SHELL
 cn on
 ```
 
+### npm (macOS / Linux / Windows)
+
+```bash
+npm install -g code-notify
+cn on
+```
+
 ### Manual Installation
 
 ```bash

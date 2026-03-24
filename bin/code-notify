@@ -25,7 +25,7 @@ source "$LIB_DIR/utils/help.sh"
 source "$LIB_DIR/core/config.sh"
 
 # Detect how the script was called
-COMMAND_NAME=$(basename "$0")
+COMMAND_NAME="${CODE_NOTIFY_COMMAND_NAME:-$(basename "$0")}"
 
 # Show version
 show_version() {

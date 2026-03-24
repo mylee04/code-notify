@@ -3,6 +3,8 @@
 > **Official downloads**: https://github.com/mylee04/code-notify/releases
 >
 > **Homebrew**: `brew install mylee04/tools/code-notify`
+>
+> **npm**: `npm install -g code-notify`
 
 Desktop notifications for AI coding tools - get alerts when tasks complete or input is needed.
 
@@ -62,6 +64,13 @@ code-notify version
 
 ```bash
 curl -sSL https://raw.githubusercontent.com/mylee04/code-notify/main/scripts/install.sh | bash
+```
+
+**npm (macOS / Linux / Windows)**
+
+```bash
+npm install -g code-notify
+cn on
 ```
 
 **Windows**
@@ -177,6 +186,12 @@ exec $SHELL   # Reload shell
 cn status     # Check if enabled
 cn test       # Test notification
 brew install terminal-notifier  # Better notifications (macOS)
+```
+
+**Installed with npm?**
+
+```bash
+cn update     # Runs: npm install -g code-notify@latest
 ```
 
 ## Project Structure

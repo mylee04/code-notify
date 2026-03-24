@@ -13,7 +13,8 @@
 param(
     [switch]$Uninstall,
     [switch]$Force,
-    [switch]$Silent
+    [switch]$Silent,
+    [switch]$SkipShellSetup
 )
 
 $ErrorActionPreference = "Stop"
@@ -966,8 +967,23 @@ function Send-TestNotification {
     }
 }
 
+function Get-InstallMethod {
+    if ($env:CODE_NOTIFY_INSTALL_METHOD) {
+        return $env:CODE_NOTIFY_INSTALL_METHOD.Trim().ToLowerInvariant()
+    }
+
+    return "script"
+}
+
 function Get-UpdateCommand {
-    return "irm https://raw.githubusercontent.com/mylee04/code-notify/main/scripts/install-windows.ps1 | iex"
+    switch (Get-InstallMethod) {
+        "npm" {
+            return "npm install -g code-notify@latest"
+        }
+        default {
+            return "irm https://raw.githubusercontent.com/mylee04/code-notify/main/scripts/install-windows.ps1 | iex"
+        }
+    }
 }
 
 function Normalize-Version {
@@ -1098,6 +1114,7 @@ function Update-CodeNotify {
         [switch]$Check
     )
 
+    $installMethod = Get-InstallMethod
     $updateCommand = Get-UpdateCommand
     $updateStatus = Get-UpdateStatus
 
@@ -1138,8 +1155,19 @@ function Update-CodeNotify {
             Write-Info "Update available: $($updateStatus.CurrentVersion) -> $($updateStatus.LatestVersion)"
         }
 
-        Invoke-WebRequest -UseBasicParsing -Uri "https://raw.githubusercontent.com/mylee04/code-notify/main/scripts/install-windows.ps1" -OutFile $tempScript
-        & $tempScript -Silent -Force
+        switch ($installMethod) {
+            "npm" {
+                $null = Get-Command npm -ErrorAction Stop
+                & npm install -g code-notify@latest
+                if ($LASTEXITCODE -ne 0) {
+                    throw "npm install failed with exit code $LASTEXITCODE"
+                }
+            }
+            default {
+                Invoke-WebRequest -UseBasicParsing -Uri "https://raw.githubusercontent.com/mylee04/code-notify/main/scripts/install-windows.ps1" -OutFile $tempScript
+                & $tempScript -Silent -Force
+            }
+        }
         Write-Success "Update complete!"
         Write-Info "Run 'code-notify version' in a new shell to confirm the installed version"
     }
@@ -1388,11 +1416,114 @@ function Get-ToolDisplayName {
 
 $ToolDisplay = Get-ToolDisplayName $ToolName
 
+$NotificationStateDir = "$ClaudeHome\notifications"
+
+try {
+    $StopRateLimitSeconds = [int]($env:CODE_NOTIFY_STOP_RATE_LIMIT_SECONDS)
+} catch {
+    $StopRateLimitSeconds = 10
+}
+
+try {
+    $NotificationRateLimitSeconds = [int]($env:CODE_NOTIFY_NOTIFICATION_RATE_LIMIT_SECONDS)
+} catch {
+    $NotificationRateLimitSeconds = 180
+}
+
+function Get-ProjectNameForNotification {
+    if ($ProjectName) {
+        return $ProjectName
+    }
+
+    $gitRoot = $null
+    try {
+        $gitCmd = Get-Command git -ErrorAction SilentlyContinue
+        if ($gitCmd) {
+            $gitRoot = & git rev-parse --show-toplevel 2>$null
+            if ($LASTEXITCODE -ne 0) {
+                $gitRoot = $null
+            }
+        }
+    } catch {
+        $gitRoot = $null
+    }
+
+    if ($gitRoot) {
+        return Split-Path $gitRoot -Leaf
+    }
+
+    return Split-Path (Get-Location) -Leaf
+}
+
+function Get-NotificationSubtype {
+    foreach ($candidate in @("idle_prompt", "permission_prompt", "auth_success", "elicitation_dialog")) {
+        if ($HookData -match [regex]::Escape($candidate)) {
+            return $candidate
+        }
+    }
+
+    return "notification"
+}
+
+function Get-RateLimitPath {
+    param([string]$Key)
+
+    $safeKey = ($Key -replace '[^A-Za-z0-9._-]', '_')
+    return Join-Path $NotificationStateDir $safeKey
+}
+
+function Test-RateLimited {
+    param(
+        [string]$Key,
+        [int]$WindowSeconds
+    )
+
+    if ($WindowSeconds -le 0) {
+        return $false
+    }
+
+    $path = Get-RateLimitPath $Key
+    if (-not (Test-Path $path)) {
+        return $false
+    }
+
+    try {
+        $lastTime = [long]((Get-Content $path -Raw -ErrorAction Stop).Trim())
+    } catch {
+        return $false
+    }
+
+    $currentTime = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+    return (($currentTime - $lastTime) -lt $WindowSeconds)
+}
+
+function Update-RateLimit {
+    param([string]$Key)
+
+    if (-not (Test-Path $NotificationStateDir)) {
+        New-Item -ItemType Directory -Path $NotificationStateDir -Force | Out-Null
+    }
+
+    $currentTime = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+    $currentTime | Set-Content (Get-RateLimitPath $Key) -Encoding ASCII
+}
+
 # Function to check if notification should be suppressed
 function Test-ShouldSuppressNotification {
     # Skip suppression checks for test notifications
     if ($HookType -eq "test") {
         return $false
+    }
+
+    if ($HookType -eq "stop" -and (Test-RateLimited -Key "last_stop_notification" -WindowSeconds $StopRateLimitSeconds)) {
+        return $true
+    }
+
+    if ($HookType -eq "notification") {
+        $notificationKey = "last_notification_{0}_{1}_{2}" -f $ToolName, (Get-ProjectNameForNotification), (Get-NotificationSubtype)
+        if (Test-RateLimited -Key $notificationKey -WindowSeconds $NotificationRateLimitSeconds) {
+            return $true
+        }
     }
 
     # For Stop hooks: Check if stop_hook_active is true
@@ -1424,30 +1555,14 @@ if ($HookType -eq "stop" -or $HookType -eq "notification") {
     }
 }
 
-if (-not $ProjectName) {
-    $gitRoot = $null
-    try {
-        # Check if git is available and we're in a git repo
-        $gitCmd = Get-Command git -ErrorAction SilentlyContinue
-        if ($gitCmd) {
-            # Use cmd to avoid PowerShell surfacing git stderr as an error record
-            $insideRepo = cmd /c "git rev-parse --is-inside-work-tree 2>nul"
-            if ($LASTEXITCODE -eq 0 -and $insideRepo.Trim() -eq "true") {
-                $gitRoot = cmd /c "git rev-parse --show-toplevel 2>nul"
-                if ($LASTEXITCODE -ne 0) {
-                    $gitRoot = $null
-                }
-            }
-        }
-    } catch {
-        $gitRoot = $null
-    }
+if ($HookType -eq "stop") {
+    Update-RateLimit -Key "last_stop_notification"
+} elseif ($HookType -eq "notification") {
+    Update-RateLimit -Key ("last_notification_{0}_{1}_{2}" -f $ToolName, (Get-ProjectNameForNotification), (Get-NotificationSubtype))
+}
 
-    if ($gitRoot) {
-        $ProjectName = Split-Path $gitRoot -Leaf
-    } else {
-        $ProjectName = Split-Path (Get-Location) -Leaf
-    }
+if (-not $ProjectName) {
+    $ProjectName = Get-ProjectNameForNotification
 }
 
 # Set notification content based on hook type
@@ -1852,7 +1967,9 @@ function Show-PostInstall {
 
 # Main installation flow
 function Main {
-    Show-Banner
+    if (-not $Silent) {
+        Show-Banner
+    }
 
     if ($Uninstall) {
         Uninstall-ClaudeNotify
@@ -1865,8 +1982,10 @@ function Main {
     }
 
     Install-ClaudeNotify
-    Add-ToPath
-    Add-PowerShellProfile
+    if (-not $SkipShellSetup) {
+        Add-ToPath
+        Add-PowerShellProfile
+    }
 
     if (-not $Silent) {
         Show-PostInstall

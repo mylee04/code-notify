@@ -35,10 +35,43 @@ TOOL_DISPLAY=$(get_tool_display_name "$TOOL_NAME")
 
 # Rate limiting for stop notifications (prevents spam from parallel sub-agents)
 RATE_LIMIT_DIR="$HOME/.claude/notifications"
-RATE_LIMIT_SECONDS=10
+STOP_RATE_LIMIT_SECONDS="${CODE_NOTIFY_STOP_RATE_LIMIT_SECONDS:-10}"
+NOTIFICATION_RATE_LIMIT_SECONDS="${CODE_NOTIFY_NOTIFICATION_RATE_LIMIT_SECONDS:-180}"
+
+sanitize_rate_limit_key() {
+    printf '%s' "$1" | tr -c 'A-Za-z0-9._-' '_'
+}
+
+get_rate_limit_file() {
+    local key
+    key=$(sanitize_rate_limit_key "$1")
+    printf '%s/%s\n' "$RATE_LIMIT_DIR" "$key"
+}
+
+get_notification_subtype() {
+    local candidate
+
+    for candidate in idle_prompt permission_prompt auth_success elicitation_dialog; do
+        if [[ "$HOOK_DATA" == *"$candidate"* ]]; then
+            printf '%s\n' "$candidate"
+            return 0
+        fi
+    done
+
+    printf '%s\n' "notification"
+}
+
+get_notification_rate_limit_key() {
+    local subtype
+    subtype=$(get_notification_subtype)
+    printf '%s\n' "last_notification_${TOOL_NAME}_${PROJECT_NAME}_${subtype}"
+}
 
 is_rate_limited() {
-    local lock_file="$RATE_LIMIT_DIR/last_stop_notification"
+    local rate_limit_key="$1"
+    local rate_limit_seconds="$2"
+    local lock_file
+    lock_file=$(get_rate_limit_file "$rate_limit_key")
 
     if [[ ! -f "$lock_file" ]]; then
         return 1  # No previous notification, not rate limited
@@ -50,7 +83,7 @@ is_rate_limited() {
     current_time=$(date +%s)
     local elapsed=$((current_time - last_time))
 
-    if [[ $elapsed -lt $RATE_LIMIT_SECONDS ]]; then
+    if [[ $elapsed -lt $rate_limit_seconds ]]; then
         return 0  # Rate limited
     fi
 
@@ -58,8 +91,11 @@ is_rate_limited() {
 }
 
 update_rate_limit() {
+    local rate_limit_key="$1"
+    local lock_file
+    lock_file=$(get_rate_limit_file "$rate_limit_key")
     mkdir -p "$RATE_LIMIT_DIR"
-    date +%s > "$RATE_LIMIT_DIR/last_stop_notification"
+    date +%s > "$lock_file"
 }
 
 # Function to check if notification should be suppressed
@@ -76,8 +112,15 @@ should_suppress_notification() {
 
     # Rate limit stop notifications to prevent spam from parallel sub-agents
     if [[ "$HOOK_TYPE" == "stop" ]]; then
-        if is_rate_limited; then
+        if is_rate_limited "last_stop_notification" "$STOP_RATE_LIMIT_SECONDS"; then
             return 0  # Suppress - too soon since last notification
+        fi
+    fi
+
+    # Suppress repeated state-style notifications such as idle_prompt.
+    if [[ "$HOOK_TYPE" == "notification" ]]; then
+        if is_rate_limited "$(get_notification_rate_limit_key)" "$NOTIFICATION_RATE_LIMIT_SECONDS"; then
+            return 0
         fi
     fi
 
@@ -111,7 +154,9 @@ fi
 
 # Update rate limit timestamp for stop notifications
 if [[ "$HOOK_TYPE" == "stop" ]]; then
-    update_rate_limit
+    update_rate_limit "last_stop_notification"
+elif [[ "$HOOK_TYPE" == "notification" ]]; then
+    update_rate_limit "$(get_notification_rate_limit_key)"
 fi
 
 # Set notification parameters based on hook type and tool
