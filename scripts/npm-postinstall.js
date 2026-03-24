@@ -4,10 +4,6 @@
 const { spawnSync } = require('node:child_process');
 const path = require('node:path');
 
-if (process.platform !== 'win32') {
-  process.exit(0);
-}
-
 if (process.env.CODE_NOTIFY_SKIP_POSTINSTALL === '1') {
   process.exit(0);
 }
@@ -17,6 +13,20 @@ const isGlobalInstall =
   process.env.npm_config_location === 'global';
 
 if (!isGlobalInstall) {
+  process.exit(0);
+}
+
+if (process.platform !== 'win32') {
+  const repairCommand = path.resolve(__dirname, '..', 'bin', 'npm-code-notify.js');
+  const result = spawnSync(process.execPath, [repairCommand, 'repair-hooks', '--quiet'], {
+    stdio: 'inherit',
+    env: process.env
+  });
+
+  if (result.error || result.status !== 0) {
+    console.warn('[code-notify] Legacy Claude hook repair did not complete during npm install.');
+  }
+
   process.exit(0);
 }
 

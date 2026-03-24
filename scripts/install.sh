@@ -149,6 +149,9 @@ ln -sf "$INSTALL_DIR/bin/code-notify" "$BIN_DIR/code-notify"
 ln -sf "$INSTALL_DIR/bin/code-notify" "$BIN_DIR/cn"
 ln -sf "$INSTALL_DIR/bin/code-notify" "$BIN_DIR/cnp"
 
+# Repair stale Claude hooks from older claude-notify installs when present.
+"$INSTALL_DIR/bin/code-notify" repair-hooks --quiet || true
+
 echo -e "${GREEN}✅ Installation complete!${RESET}"
 echo ""
 

@@ -387,6 +387,7 @@ enable_notifications_global() {
 enable_single_tool() {
     local tool="$1"
     local quiet="${2:-}"
+    local needs_repair=1
 
     # Check if tool is installed
     if ! is_tool_installed "$tool"; then
@@ -396,8 +397,12 @@ enable_single_tool() {
         return 1
     fi
 
+    if [[ "$tool" == "claude" ]] && claude_global_hooks_need_repair; then
+        needs_repair=0
+    fi
+
     # Check if already enabled
-    if is_tool_enabled "$tool"; then
+    if [[ $needs_repair -ne 0 ]] && is_tool_enabled "$tool"; then
         if [[ "$quiet" != "quiet" ]]; then
             warning "$tool notifications already enabled"
         fi
@@ -406,7 +411,11 @@ enable_single_tool() {
 
     # Enable the tool
     if [[ "$quiet" != "quiet" ]]; then
-        info "Enabling $tool notifications..."
+        if [[ "$tool" == "claude" ]] && [[ $needs_repair -eq 0 ]]; then
+            info "Repairing existing $tool notification hooks..."
+        else
+            info "Enabling $tool notifications..."
+        fi
     fi
 
     if ! enable_tool "$tool"; then
@@ -519,7 +528,12 @@ show_status() {
 
     # Claude Code
     if is_tool_installed "claude"; then
-        if is_tool_enabled "claude"; then
+        if claude_global_hooks_need_repair; then
+            echo "  ${WARNING} Claude Code: ${YELLOW}REPAIR NEEDED${RESET}"
+            echo "     Config: $GLOBAL_SETTINGS_FILE"
+            echo "     Current hooks still point to an older claude-notify-style configuration"
+            echo "     Run: ${CYAN}cn on claude${RESET}"
+        elif is_tool_enabled "claude"; then
             echo "  ${CHECK_MARK} Claude Code: ${GREEN}ENABLED${RESET}"
             echo "     Config: $GLOBAL_SETTINGS_FILE"
         else
@@ -534,6 +548,7 @@ show_status() {
         if is_tool_enabled "codex"; then
             echo "  ${CHECK_MARK} Codex: ${GREEN}ENABLED${RESET}"
             echo "     Config: $CODEX_CONFIG_FILE"
+            echo "     Events: completion-only via Codex notify payloads"
         else
             echo "  ${MUTE} Codex: ${DIM}DISABLED${RESET}"
         fi
@@ -983,6 +998,9 @@ show_alerts_status() {
     echo "  ${CYAN}cn alerts add auth_success${RESET}        # Also notify on auth success"
     echo "  ${CYAN}cn alerts remove permission_prompt${RESET} # Stop permission notifications"
     echo "  ${CYAN}cn alerts reset${RESET}                   # Back to idle_prompt only"
+    echo ""
+    dim "Alert-type matching currently applies to Claude Code and Gemini CLI hooks."
+    dim "Codex currently exposes completion events through notify, so permission_prompt/idle_prompt settings do not change Codex behavior."
     echo ""
     dim "After changing, run 'cn on' to apply the new settings."
 }

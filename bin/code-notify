@@ -6,7 +6,7 @@
 set -e
 
 # Version
-VERSION="1.6.8"
+VERSION="1.6.9"
 
 # Determine the directory where the script is located (resolve symlinks)
 SCRIPT_PATH="${BASH_SOURCE[0]}"
@@ -52,6 +52,10 @@ case "$COMMAND_NAME" in
                 source "$LIB_DIR/commands/global.sh"
                 handle_global_command "$@"
                 ;;
+            "repair-hooks")
+                shift
+                repair_legacy_hooks_command "${1:-}"
+                ;;
             *)
                 error "Unknown command: $1"
                 echo "Try 'cn help' for usage"
@@ -72,6 +76,10 @@ case "$COMMAND_NAME" in
             "on"|"off"|"status"|"test"|"setup"|"voice"|"sound"|"alerts"|"update")
                 source "$LIB_DIR/commands/global.sh"
                 handle_global_command "$@"
+                ;;
+            "repair-hooks")
+                shift
+                repair_legacy_hooks_command "${1:-}"
                 ;;
             "project")
                 shift

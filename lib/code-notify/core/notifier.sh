@@ -3,22 +3,118 @@
 # Core notification functionality for Code-Notify
 # Supports: Claude Code, Codex, Gemini CLI
 
-# Get arguments: notify.sh <hook_type> <tool_name> [project_name]
-HOOK_TYPE=${CLAUDE_HOOK_TYPE:-$1}
-TOOL_NAME=${2:-""}
-PROJECT_NAME=${3:-$(basename "$PWD")}
-
-# Read hook data from stdin (Claude Code passes JSON with hook context)
-HOOK_DATA=""
-if [[ ! -t 0 ]]; then
-    HOOK_DATA=$(cat 2>/dev/null || true)
-fi
+# Get arguments:
+#   Claude/Gemini: notify.sh <hook_type> <tool_name> [project_name]
+#   Codex:         notify.sh codex <payload_json>
+RAW_ARG1="${1:-}"
+RAW_ARG2="${2:-}"
+RAW_ARG3="${3:-}"
 
 # Source shared utilities
 NOTIFIER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$NOTIFIER_DIR/../utils/detect.sh"
 source "$NOTIFIER_DIR/../utils/voice.sh"
 source "$NOTIFIER_DIR/../utils/sound.sh"
+
+has_jq() {
+    command -v jq >/dev/null 2>&1
+}
+
+has_python3() {
+    command -v python3 >/dev/null 2>&1
+}
+
+json_extract_string() {
+    local json="$1"
+    local key="$2"
+
+    if [[ -z "$json" ]]; then
+        return 0
+    fi
+
+    if has_jq; then
+        printf '%s' "$json" | jq -r --arg key "$key" '(.[$key] // "") | if type == "string" then . else "" end' 2>/dev/null
+        return 0
+    fi
+
+    if has_python3; then
+        printf '%s' "$json" | python3 -c '
+import json, sys
+key = sys.argv[1]
+try:
+    value = json.load(sys.stdin).get(key, "")
+except Exception:
+    value = ""
+print(value if isinstance(value, str) else "", end="")
+' "$key" 2>/dev/null
+        return 0
+    fi
+
+    case "$key" in
+        "type")
+            printf '%s' "$json" | sed -nE 's/.*"type"[[:space:]]*:[[:space:]]*"([^"]*)".*/\1/p' | head -n1
+            ;;
+        "cwd")
+            printf '%s' "$json" | sed -nE 's/.*"cwd"[[:space:]]*:[[:space:]]*"([^"]*)".*/\1/p' | head -n1
+            ;;
+    esac
+}
+
+get_codex_hook_type() {
+    local payload_type
+    payload_type=$(json_extract_string "$HOOK_DATA" "type" | tr '[:upper:]' '[:lower:]')
+
+    case "$payload_type" in
+        "agent-turn-complete")
+            printf '%s\n' "stop"
+            return 0
+            ;;
+        *"request_permissions"*|*"permission"*|*"approval"*|*"elicitation"*|*"prompt"*)
+            printf '%s\n' "notification"
+            return 0
+            ;;
+        *"error"*|*"failed"*)
+            printf '%s\n' "error"
+            return 0
+            ;;
+    esac
+
+    if [[ "$HOOK_DATA" == *"last-assistant-message"* ]]; then
+        printf '%s\n' "stop"
+    elif [[ "$HOOK_DATA" == *"request_permissions"* ]] || [[ "$HOOK_DATA" == *"approval"* ]] || [[ "$HOOK_DATA" == *"permission"* ]]; then
+        printf '%s\n' "notification"
+    else
+        printf '%s\n' "stop"
+    fi
+}
+
+get_codex_project_name() {
+    local payload_cwd
+    payload_cwd=$(json_extract_string "$HOOK_DATA" "cwd")
+
+    if [[ -n "$payload_cwd" ]]; then
+        basename "$payload_cwd"
+    else
+        basename "$PWD"
+    fi
+}
+
+HOOK_DATA=""
+if [[ "$RAW_ARG1" == "codex" ]]; then
+    TOOL_NAME="codex"
+    HOOK_DATA="$RAW_ARG2"
+    HOOK_TYPE=$(get_codex_hook_type)
+    PROJECT_NAME="${RAW_ARG3:-$(get_codex_project_name)}"
+else
+    HOOK_TYPE=${CLAUDE_HOOK_TYPE:-$RAW_ARG1}
+    TOOL_NAME="${RAW_ARG2:-""}"
+    PROJECT_NAME="${RAW_ARG3:-$(basename "$PWD")}"
+
+    # Read hook data from stdin (Claude Code passes JSON with hook context)
+    if [[ ! -t 0 ]]; then
+        HOOK_DATA=$(cat 2>/dev/null || true)
+    fi
+fi
 
 # Get display name for tool
 get_tool_display_name() {
@@ -49,14 +145,25 @@ get_rate_limit_file() {
 }
 
 get_notification_subtype() {
-    local candidate
+    if [[ "$HOOK_DATA" == *"idle_prompt"* ]]; then
+        printf '%s\n' "idle_prompt"
+        return 0
+    fi
 
-    for candidate in idle_prompt permission_prompt auth_success elicitation_dialog; do
-        if [[ "$HOOK_DATA" == *"$candidate"* ]]; then
-            printf '%s\n' "$candidate"
-            return 0
-        fi
-    done
+    if [[ "$HOOK_DATA" == *"permission_prompt"* ]] || [[ "$HOOK_DATA" == *"request_permissions"* ]] || [[ "$HOOK_DATA" == *"sandbox_approval"* ]]; then
+        printf '%s\n' "permission_prompt"
+        return 0
+    fi
+
+    if [[ "$HOOK_DATA" == *"auth_success"* ]]; then
+        printf '%s\n' "auth_success"
+        return 0
+    fi
+
+    if [[ "$HOOK_DATA" == *"elicitation_dialog"* ]] || [[ "$HOOK_DATA" == *"mcp_elicitations"* ]]; then
+        printf '%s\n' "elicitation_dialog"
+        return 0
+    fi
 
     printf '%s\n' "notification"
 }

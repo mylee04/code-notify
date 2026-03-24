@@ -239,6 +239,115 @@ has_claude_notify_hooks() {
     json_has "$file" '(.hooks.Notification != null) or (.hooks.Stop != null)' '"(Notification|Stop)"'
 }
 
+get_global_claude_notify_command() {
+    printf '%s notification claude\n' "$(get_notify_script)"
+}
+
+get_global_claude_stop_command() {
+    printf '%s stop claude\n' "$(get_notify_script)"
+}
+
+has_current_global_claude_hooks() {
+    local file="$1"
+    local matcher notify_cmd stop_cmd
+
+    if [[ ! -f "$file" ]]; then
+        return 1
+    fi
+
+    matcher=$(get_notify_matcher)
+    notify_cmd=$(get_global_claude_notify_command)
+    stop_cmd=$(get_global_claude_stop_command)
+
+    if has_jq; then
+        jq -e \
+            --arg matcher "$matcher" \
+            --arg notify "$notify_cmd" \
+            --arg stop "$stop_cmd" \
+            '
+            (.hooks.Notification | type == "array" and length > 0) and
+            (.hooks.Stop | type == "array" and length > 0) and
+            .hooks.Notification[0].matcher == $matcher and
+            .hooks.Notification[0].hooks[0].type == "command" and
+            .hooks.Notification[0].hooks[0].command == $notify and
+            .hooks.Stop[0].matcher == "" and
+            .hooks.Stop[0].hooks[0].type == "command" and
+            .hooks.Stop[0].hooks[0].command == $stop
+            ' "$file" >/dev/null 2>&1
+        return $?
+    fi
+
+    if has_python3; then
+        python3 - "$file" "$matcher" "$notify_cmd" "$stop_cmd" << 'PYTHON'
+import json
+import sys
+
+file_path, matcher, notify_cmd, stop_cmd = sys.argv[1:5]
+
+with open(file_path, "r") as fh:
+    settings = json.load(fh)
+
+notification = settings.get("hooks", {}).get("Notification", [])
+stop = settings.get("hooks", {}).get("Stop", [])
+
+assert isinstance(notification, list) and notification
+assert isinstance(stop, list) and stop
+assert notification[0].get("matcher", "") == matcher
+assert notification[0].get("hooks", [{}])[0].get("type") == "command"
+assert notification[0].get("hooks", [{}])[0].get("command") == notify_cmd
+assert stop[0].get("matcher", "") == ""
+assert stop[0].get("hooks", [{}])[0].get("type") == "command"
+assert stop[0].get("hooks", [{}])[0].get("command") == stop_cmd
+PYTHON
+        return $?
+    fi
+
+    grep -qF "\"matcher\": \"$matcher\"" "$file" &&
+        grep -qF "\"command\": \"$notify_cmd\"" "$file" &&
+        grep -qF "\"command\": \"$stop_cmd\"" "$file"
+}
+
+has_legacy_global_claude_hooks() {
+    local file="${1:-$GLOBAL_SETTINGS_FILE}"
+
+    if [[ ! -f "$file" ]]; then
+        return 1
+    fi
+
+    grep -q 'claude-notify' "$file" ||
+        grep -qE 'notifier\.sh (notification|stop)"' "$file" ||
+        grep -q 'notifier.sh PreToolUse' "$file"
+}
+
+claude_global_hooks_need_repair() {
+    has_legacy_global_claude_hooks "$GLOBAL_SETTINGS_FILE"
+}
+
+repair_legacy_hooks_command() {
+    local quiet="${1:-}"
+    local repaired=0
+
+    if claude_global_hooks_need_repair; then
+        if ! enable_hooks_in_settings; then
+            if [[ "$quiet" != "--quiet" ]]; then
+                echo "Failed to repair legacy Claude hooks" >&2
+            fi
+            return 1
+        fi
+        repaired=1
+
+        if [[ "$quiet" != "--quiet" ]]; then
+            echo "Repaired legacy Claude hooks in $GLOBAL_SETTINGS_FILE"
+        fi
+    fi
+
+    if [[ $repaired -eq 0 ]] && [[ "$quiet" != "--quiet" ]]; then
+        echo "No legacy hooks required repair"
+    fi
+
+    return 0
+}
+
 # Check if file has any hooks
 has_any_hooks() {
     local file="$1"
@@ -686,7 +795,7 @@ enable_codex_hooks() {
     mkdir -p "$CODEX_HOME"
 
     escaped_notify_script=$(toml_escape_string "$notify_script")
-    notify_line="notify = [\"bash\", \"-c\", \"$escaped_notify_script stop codex\"]"
+    notify_line="notify = [\"$escaped_notify_script\", \"codex\"]"
 
     # Check if config.toml exists
     if [[ -f "$CODEX_CONFIG_FILE" ]]; then
@@ -701,7 +810,7 @@ enable_codex_hooks() {
 # https://developers.openai.com/codex/config-reference/
 
 # Code-Notify: Desktop notifications
-notify = ["bash", "-c", "$escaped_notify_script stop codex"]
+notify = ["$escaped_notify_script", "codex"]
 EOF
     fi
 }

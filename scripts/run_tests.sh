@@ -150,6 +150,14 @@ else
     test_fail "notification dedupe failed"
 fi
 
+# Test 14: Codex payloads are parsed into notifications correctly
+test_start "codex payload parsing"
+if bash tests/test-codex-notify.sh >/dev/null 2>&1; then
+    test_pass
+else
+    test_fail "codex payload parsing failed"
+fi
+
 # Summary
 echo ""
 echo "Test Summary:"

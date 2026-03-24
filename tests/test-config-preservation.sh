@@ -523,6 +523,7 @@ with open(sys.argv[1], "rb") as fh:
 
 assert "notify" in data, data
 assert "notify" not in data.get("features", {}), data
+assert data["notify"][1] == "codex", data["notify"]
 PY
             then
                 echo "❌ TOML parser still sees notify under a table"
@@ -555,7 +556,7 @@ PY
 multi_agent = true
 
 # Code-Notify: Desktop notifications
-notify = ["bash", "-c", "/tmp/notifier stop codex"]
+notify = ["/tmp/notifier", "codex"]
 EOF
 
         if is_codex_enabled; then
@@ -584,6 +585,110 @@ EOF
             exit 1
         fi
         echo "✅ Re-enable repairs misplaced notify without duplicates"
+    )
+
+    return $?
+}
+
+run_test_legacy_claude_hooks_repair() {
+    local test_dir=$(mktemp -d)
+    trap "rm -rf $test_dir" RETURN
+
+    export HOME="$test_dir"
+    export CLAUDE_HOME="$test_dir/.claude"
+    mkdir -p "$CLAUDE_HOME"
+
+    (
+        source "$SCRIPT_DIR/../lib/code-notify/utils/colors.sh"
+        source "$SCRIPT_DIR/../lib/code-notify/utils/detect.sh"
+        source "$SCRIPT_DIR/../lib/code-notify/core/config.sh"
+        source "$SCRIPT_DIR/../lib/code-notify/commands/global.sh"
+
+        is_tool_installed() { return 0; }
+
+        cat > "$GLOBAL_SETTINGS_FILE" << EOF
+{
+  "hooks": {
+    "Notification": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude-notify/lib/claude-notify/core/notifier.sh notification"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude-notify/lib/claude-notify/core/notifier.sh stop"
+          }
+        ]
+      }
+    ]
+  }
+}
+EOF
+
+        echo ""
+        echo "=== Testing legacy Claude hook repair ==="
+
+        if ! claude_global_hooks_need_repair; then
+            echo "❌ Legacy Claude hooks were not flagged for repair"
+            cat "$GLOBAL_SETTINGS_FILE"
+            exit 1
+        fi
+        echo "✅ Legacy Claude hooks are detected as stale"
+
+        local output
+        output=$("$SCRIPT_DIR/../bin/code-notify" repair-hooks 2>&1) || {
+            echo "❌ code-notify repair-hooks failed while repairing legacy Claude hooks"
+            echo "$output"
+            exit 1
+        }
+
+        if echo "$output" | grep -q "already enabled"; then
+            echo "❌ repair-hooks incorrectly skipped repairing legacy Claude hooks"
+            echo "$output"
+            exit 1
+        fi
+
+        grep -qF "\"matcher\": \"idle_prompt\"" "$GLOBAL_SETTINGS_FILE" || {
+            echo "❌ Repaired Claude config did not restore idle_prompt matcher"
+            cat "$GLOBAL_SETTINGS_FILE"
+            exit 1
+        }
+
+        if ! grep -qE 'code-notify/.*/notifier\.sh notification claude' "$GLOBAL_SETTINGS_FILE"; then
+            echo "❌ Repaired Claude config did not update the notification command to code-notify"
+            cat "$GLOBAL_SETTINGS_FILE"
+            exit 1
+        fi
+
+        if ! grep -qE 'code-notify/.*/notifier\.sh stop claude' "$GLOBAL_SETTINGS_FILE"; then
+            echo "❌ Repaired Claude config did not update the stop command to code-notify"
+            cat "$GLOBAL_SETTINGS_FILE"
+            exit 1
+        fi
+
+        if grep -q "claude-notify" "$GLOBAL_SETTINGS_FILE"; then
+            echo "❌ Repaired Claude config still references claude-notify"
+            cat "$GLOBAL_SETTINGS_FILE"
+            exit 1
+        fi
+
+        if claude_global_hooks_need_repair; then
+            echo "❌ Claude hooks still appear stale after repair"
+            cat "$GLOBAL_SETTINGS_FILE"
+            exit 1
+        fi
+
+        echo "✅ Legacy Claude hooks are repaired to the current code-notify config"
     )
 
     return $?
@@ -643,6 +748,9 @@ done
 
 # Test 8: Codex TOML placement and repair
 run_test_codex_toml_placement || fail "Codex TOML placement test failed"
+
+# Test 9: Legacy claude-notify hook configs are repaired in place
+run_test_legacy_claude_hooks_repair || fail "Legacy Claude hook repair test failed"
 
 echo ""
 echo "============================================"

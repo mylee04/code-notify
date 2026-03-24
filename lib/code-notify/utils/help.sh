@@ -49,6 +49,8 @@ ${BOLD}ALERT TYPES:${RESET}
     ${GREEN}alerts reset${RESET}        Reset to default (idle_prompt only)
 
     Types: ${CYAN}idle_prompt${RESET} (default), ${CYAN}permission_prompt${RESET}, ${CYAN}auth_success${RESET}, ${CYAN}elicitation_dialog${RESET}
+    Note: alert-type matching applies to Claude Code and Gemini CLI hooks.
+          Codex currently exposes completion events through its notify payload.
 
 ${BOLD}VOICE COMMANDS:${RESET}
     ${GREEN}voice on${RESET}            Enable voice for all tools

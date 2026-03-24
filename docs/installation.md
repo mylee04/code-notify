@@ -4,11 +4,15 @@
 
 ## Quick Overview
 
-Code-Notify adds desktop notifications to Claude Code. You'll get alerts when:
+Code-Notify adds desktop notifications to Claude Code, Codex, and Gemini CLI. You'll get alerts when:
 
 - Tasks complete
-- Claude needs your input
+- Claude or Gemini needs your input
 - Voice announcements (macOS)
+
+Codex currently exposes completion notifications through its `notify` hook. Approval and `request_permissions` prompts do not currently trigger Code-Notify through Codex.
+
+Supported upgrade paths also repair stale `claude-notify`-style Claude hooks automatically when they are detected.
 
 ## For LLM Agents
 

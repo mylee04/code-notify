@@ -13,7 +13,7 @@ Desktop notifications for AI coding tools - get alerts when tasks complete or in
   <img src="assets/multi-tools-support-02.png" width="48%" alt="All tools enabled"/>
 </p>
 
-[![Version](https://img.shields.io/badge/version-1.6.8-blue.svg)](https://github.com/mylee04/code-notify/releases)
+[![Version](https://img.shields.io/badge/version-1.6.9-blue.svg)](https://github.com/mylee04/code-notify/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![macOS](https://img.shields.io/badge/macOS-supported-green.svg)](https://www.apple.com/macos)
 [![Linux](https://img.shields.io/badge/Linux-supported-green.svg)](https://www.linux.org/)
@@ -21,11 +21,11 @@ Desktop notifications for AI coding tools - get alerts when tasks complete or in
 
 ---
 
-## What's New in v1.6.8
+## What's New in v1.6.9
 
-- **npm is now a first-class install path**: `npm install -g code-notify` now provides `code-notify`, `cn`, and `cnp` on macOS, Linux, and Windows
-- **Repeated idle/input alerts are deduped**: repeated `idle_prompt`-style notification events are suppressed so sound playback does not keep firing while Claude stays idle
-- **`cn update` understands npm installs**: npm users now get the correct `npm install -g code-notify@latest` update path, including on Windows
+- **Legacy Claude hooks are repaired during supported upgrades**: stale `claude-notify`-style Claude configs are migrated to the current `code-notify` hook format when users update through the supported install paths
+- **Claude idle dedupe now survives upgrades from older installs**: users who were still on the old blank-matcher Claude hooks no longer bypass the repeated `idle_prompt` suppression after updating
+- **Codex notify integration now reads Codex payload JSON directly**: completion notifications use Codex's `notify` payload format, and the docs/status output now clearly call out Codex's current completion-focused behavior
 
 ---
 
@@ -59,6 +59,8 @@ cn on
 cn update
 code-notify version
 ```
+
+If you were using the older `claude-notify` hook layout, supported upgrades now repair those Claude hooks automatically.
 
 **Linux / WSL**
 
@@ -129,6 +131,9 @@ Code-Notify uses the hook systems built into AI coding tools:
 - **Codex**: `~/.codex/config.toml`
 - **Gemini CLI**: `~/.gemini/settings.json`
 
+For Codex, Code-Notify configures `notify = ["/absolute/path/to/notifier.sh", "codex"]` and reads the JSON payload Codex appends on completion.
+Codex currently exposes completion events through `notify`; approval and `request_permissions` prompts do not currently arrive through this hook.
+
 When enabled, it adds hooks that call the notification script when tasks complete:
 
 ```json
@@ -171,6 +176,8 @@ cn alerts reset                    # Back to default (idle_prompt only)
 | `permission_prompt`  | AI needs tool permission (Y/n)         |
 | `auth_success`       | Authentication success                 |
 | `elicitation_dialog` | MCP tool input needed                  |
+
+Alert-type matching currently applies to Claude Code and Gemini CLI notification hooks. Codex currently uses completion events from `notify`, so `permission_prompt` and `idle_prompt` settings do not change Codex behavior.
 
 ## Troubleshooting
 

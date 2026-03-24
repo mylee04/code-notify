@@ -20,7 +20,7 @@ param(
 $ErrorActionPreference = "Stop"
 
 # Version
-$VERSION = "1.6.8"
+$VERSION = "1.6.9"
 
 # Colors and formatting
 function Write-Success { param([string]$Message) Write-Host "[OK] $Message" -ForegroundColor Green }
@@ -106,7 +106,7 @@ function Install-ClaudeNotify {
 # Code-Notify PowerShell Module
 # https://github.com/mylee04/code-notify
 
-$script:VERSION = "1.6.8"
+$script:VERSION = "1.6.9"
 $script:ClaudeHome = "$env:USERPROFILE\.claude"
 $script:SettingsFile = "$script:ClaudeHome\settings.json"
 $script:NotificationsDir = "$script:ClaudeHome\notifications"
@@ -567,6 +567,38 @@ function Test-NotificationsEnabled {
     }
 }
 
+function Test-LegacyClaudeHooks {
+    if (-not (Test-Path $script:SettingsFile)) {
+        return $false
+    }
+
+    $raw = Get-Content $script:SettingsFile -Raw -ErrorAction SilentlyContinue
+    if (-not $raw) {
+        return $false
+    }
+
+    return ($raw -match 'claude-notify' -or $raw -match 'notify\.ps1 notification"' -or $raw -match 'notify\.ps1 stop"' -or $raw -match 'notify\.ps1 PreToolUse')
+}
+
+function Repair-LegacyClaudeHooks {
+    param([switch]$Quiet)
+
+    if (Test-LegacyClaudeHooks) {
+        if (-not $Quiet) {
+            Write-Info "Repairing legacy Claude hooks..."
+        }
+
+        Enable-Notifications -Tool "claude"
+        return $true
+    }
+
+    if (-not $Quiet) {
+        Write-Info "No legacy hooks required repair"
+    }
+
+    return $false
+}
+
 function Enable-Notifications {
     param(
         [switch]$Project,
@@ -589,7 +621,7 @@ function Enable-Notifications {
             Backup-ConfigFile $script:CodexConfigFile
 
             $escapedNotifyScript = $notifyScript -replace '\\', '\\\\'
-            $notifyLine = 'notify = ["powershell", "-ExecutionPolicy", "Bypass", "-File", "' + $escapedNotifyScript + '", "stop", "codex"]'
+            $notifyLine = 'notify = ["powershell", "-ExecutionPolicy", "Bypass", "-File", "' + $escapedNotifyScript + '", "codex"]'
             Set-CodexNotifyConfig -Path $script:CodexConfigFile -NotifyLine $notifyLine
             Write-Success "Codex notifications enabled!"
             Write-Info "Config: $script:CodexConfigFile"
@@ -674,7 +706,7 @@ function Enable-Notifications {
                 hooks = @{
                     Notification = @(
                         @{
-                            matcher = ""
+                            matcher = "idle_prompt"
                             hooks = @(
                                 @{
                                     type = "command"
@@ -1284,6 +1316,13 @@ function Invoke-CodeNotify {
                 Update-CodeNotify
             }
         }
+        "repair-hooks" {
+            if ($SubCommand -eq "--quiet") {
+                Repair-LegacyClaudeHooks -Quiet | Out-Null
+            } else {
+                Repair-LegacyClaudeHooks | Out-Null
+            }
+        }
         "voice" {
             switch ($SubCommand) {
                 "on" { Enable-Voice }
@@ -1404,6 +1443,76 @@ try {
     $HookData = ""
 }
 
+function Get-JsonStringValue {
+    param(
+        [string]$Json,
+        [string]$Key
+    )
+
+    if (-not $Json) {
+        return ""
+    }
+
+    try {
+        $parsed = $Json | ConvertFrom-Json -ErrorAction Stop
+    } catch {
+        return ""
+    }
+
+    $value = $parsed.PSObject.Properties[$Key].Value
+    if ($value -is [string]) {
+        return $value
+    }
+
+    return ""
+}
+
+function Get-CodexHookType {
+    param([string]$Payload)
+
+    $payloadType = (Get-JsonStringValue -Json $Payload -Key "type").ToLowerInvariant()
+
+    if ($payloadType -eq "agent-turn-complete") {
+        return "stop"
+    }
+
+    if ($payloadType -match 'request_permissions|permission|approval|elicitation|prompt') {
+        return "notification"
+    }
+
+    if ($payloadType -match 'error|failed') {
+        return "error"
+    }
+
+    if ($Payload -match 'last-assistant-message') {
+        return "stop"
+    }
+
+    if ($Payload -match 'request_permissions|approval|permission') {
+        return "notification"
+    }
+
+    return "stop"
+}
+
+function Get-CodexProjectName {
+    param([string]$Payload)
+
+    $payloadCwd = Get-JsonStringValue -Json $Payload -Key "cwd"
+    if ($payloadCwd) {
+        return Split-Path $payloadCwd -Leaf
+    }
+
+    return Split-Path (Get-Location) -Leaf
+}
+
+if ($HookType -eq "codex") {
+    $ToolName = "codex"
+    $HookData = $ProjectName
+    $HookType = Get-CodexHookType -Payload $HookData
+    $ProjectName = Get-CodexProjectName -Payload $HookData
+}
+
 function Get-ToolDisplayName {
     param([string]$Tool = "claude")
 
@@ -1456,10 +1565,20 @@ function Get-ProjectNameForNotification {
 }
 
 function Get-NotificationSubtype {
-    foreach ($candidate in @("idle_prompt", "permission_prompt", "auth_success", "elicitation_dialog")) {
-        if ($HookData -match [regex]::Escape($candidate)) {
-            return $candidate
-        }
+    if ($HookData -match 'idle_prompt') {
+        return "idle_prompt"
+    }
+
+    if ($HookData -match 'permission_prompt|request_permissions|sandbox_approval') {
+        return "permission_prompt"
+    }
+
+    if ($HookData -match 'auth_success') {
+        return "auth_success"
+    }
+
+    if ($HookData -match 'elicitation_dialog|mcp_elicitations') {
+        return "elicitation_dialog"
     }
 
     return "notification"
@@ -1985,6 +2104,13 @@ function Main {
     if (-not $SkipShellSetup) {
         Add-ToPath
         Add-PowerShellProfile
+    }
+
+    try {
+        Import-Module "$InstallDir\lib\CodeNotify.psm1" -Force -Verbose:$false
+        Invoke-CodeNotify "repair-hooks" "--quiet"
+    } catch {
+        Write-Warning "Legacy Claude hook repair did not complete during install"
     }
 
     if (-not $Silent) {
