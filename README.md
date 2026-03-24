@@ -11,7 +11,7 @@ Desktop notifications for AI coding tools - get alerts when tasks complete or in
   <img src="assets/multi-tools-support-02.png" width="48%" alt="All tools enabled"/>
 </p>
 
-[![Version](https://img.shields.io/badge/version-1.6.6-blue.svg)](https://github.com/mylee04/code-notify/releases)
+[![Version](https://img.shields.io/badge/version-1.6.7-blue.svg)](https://github.com/mylee04/code-notify/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![macOS](https://img.shields.io/badge/macOS-supported-green.svg)](https://www.apple.com/macos)
 [![Linux](https://img.shields.io/badge/Linux-supported-green.svg)](https://www.linux.org/)
@@ -19,11 +19,11 @@ Desktop notifications for AI coding tools - get alerts when tasks complete or in
 
 ---
 
-## What's New in v1.6.6
+## What's New in v1.6.7
 
-- **`cnp on` now warns instead of changing trust state**: when Claude project trust has not been accepted yet, Code-Notify explains that project hooks may be ignored until the prompt is approved
-- **Windows gets the same project-trust detection**: the PowerShell install path now surfaces the same warning for project-level setup instead of silently assuming trust
-- **Regression coverage expanded again**: tests and CI now verify the warning path for untrusted Claude projects on both shell and Windows flows
+- **Windows `cn -v` now behaves like a real version shortcut**: it resolves directly to the version command instead of leaking PowerShell verbose module reload output
+- **Update output is cleaner when you're already current**: `cn update` and `cn update check` now keep the current version visible while using a shorter “Code-Notify is up to date” message
+- **Explicit `all` aliases are now accepted**: `cn on all`, `cn off all`, and `cn status all` work as direct aliases for the global commands
 
 ---
 
