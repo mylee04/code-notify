@@ -1071,19 +1071,25 @@ function Write-UpdateStatus {
         [pscustomobject]$Status
     )
 
-    Write-Output "[i] Current version: $($Status.CurrentVersion)"
-
     if (-not $Status.LatestVersion) {
+        Write-Output "[i] Current version: $($Status.CurrentVersion)"
         Write-Output "[!] Could not determine the latest release"
         return
     }
 
-    Write-Output "[i] Latest release: $($Status.LatestVersion)"
-
     switch ($Status.Comparison) {
-        -1 { Write-Output "[!] Update available: $($Status.CurrentVersion) -> $($Status.LatestVersion)" }
-        0 { Write-Output "[OK] Already up to date" }
-        1 { Write-Output "[i] Installed version is newer than the latest release" }
+        -1 {
+            Write-Output "[i] Current version: $($Status.CurrentVersion)"
+            Write-Output "[!] Update available: $($Status.CurrentVersion) -> $($Status.LatestVersion)"
+        }
+        0 {
+            Write-Output "[i] Current version: $($Status.CurrentVersion)"
+            Write-Output "[OK] Code-Notify is up to date ($($Status.CurrentVersion))"
+        }
+        1 {
+            Write-Output "[i] Current version: $($Status.CurrentVersion)"
+            Write-Output "[i] Installed version is newer than the latest release ($($Status.LatestVersion))"
+        }
     }
 }
 
@@ -1157,9 +1163,9 @@ USAGE:
     cnp <command>             # Project command alias
 
 COMMANDS:
-    on [tool]       Enable notifications globally or for a specific tool
-    off [tool]      Disable notifications globally or for a specific tool
-    status [tool]   Show notification status
+    on [tool|all]   Enable notifications globally or for a specific tool
+    off [tool|all]  Disable notifications globally or for a specific tool
+    status [tool|all] Show notification status
     test            Send a test notification
     update [check]  Update code-notify or check the latest release
     voice on        Enable voice notifications
@@ -1189,7 +1195,9 @@ PROJECT COMMANDS:
 
 EXAMPLES:
     code-notify on            # Enable Claude notifications
+    cn on all                 # Enable all detected tools
     cn on codex               # Enable Codex notifications
+    cn off all                # Disable all tools
     cn off gemini             # Disable Gemini notifications
     cnp on                    # Enable Claude project notifications
     cn test                   # Send test notification
@@ -1678,8 +1686,21 @@ exit 0
     $cliWrapper = @'
 # Code-Notify CLI wrapper
 param([Parameter(ValueFromRemainingArguments)][string[]]$Args)
-Import-Module "$env:USERPROFILE\.code-notify\lib\CodeNotify.psm1" -Force
-Invoke-CodeNotify @Args
+$requestedVersionShortcut = $false
+$invocationLine = [string]$MyInvocation.Line
+if ($Args.Count -eq 1 -and @('version', '-v', '--version') -contains $Args[0]) {
+    $requestedVersionShortcut = $true
+} elseif ($Args.Count -eq 0 -and $invocationLine -match '(^|\s)-v($|\s)') {
+    $requestedVersionShortcut = $true
+} elseif ($Args.Count -eq 0 -and $invocationLine -match '(^|\s)--version($|\s)') {
+    $requestedVersionShortcut = $true
+}
+Import-Module "$env:USERPROFILE\.code-notify\lib\CodeNotify.psm1" -Force -Verbose:$false
+if ($requestedVersionShortcut) {
+    Invoke-CodeNotify "version"
+} else {
+    Invoke-CodeNotify @Args
+}
 '@
 
     $cliWrapper | Set-Content "$InstallDir\bin\code-notify.ps1" -Encoding UTF8
@@ -1688,8 +1709,21 @@ Invoke-CodeNotify @Args
     $cnWrapper = @'
 # cn - Code-Notify shortcut
 param([Parameter(ValueFromRemainingArguments)][string[]]$Args)
-Import-Module "$env:USERPROFILE\.code-notify\lib\CodeNotify.psm1" -Force
-Invoke-CodeNotify @Args
+$requestedVersionShortcut = $false
+$invocationLine = [string]$MyInvocation.Line
+if ($Args.Count -eq 1 -and @('version', '-v', '--version') -contains $Args[0]) {
+    $requestedVersionShortcut = $true
+} elseif ($Args.Count -eq 0 -and $invocationLine -match '(^|\s)-v($|\s)') {
+    $requestedVersionShortcut = $true
+} elseif ($Args.Count -eq 0 -and $invocationLine -match '(^|\s)--version($|\s)') {
+    $requestedVersionShortcut = $true
+}
+Import-Module "$env:USERPROFILE\.code-notify\lib\CodeNotify.psm1" -Force -Verbose:$false
+if ($requestedVersionShortcut) {
+    Invoke-CodeNotify "version"
+} else {
+    Invoke-CodeNotify @Args
+}
 '@
     $cnWrapper | Set-Content "$InstallDir\bin\cn.ps1" -Encoding UTF8
 
@@ -1697,7 +1731,7 @@ Invoke-CodeNotify @Args
     $cnpWrapper = @'
 # cnp - Code-Notify Project shortcut
 param([Parameter(ValueFromRemainingArguments)][string[]]$Args)
-Import-Module "$env:USERPROFILE\.code-notify\lib\CodeNotify.psm1" -Force
+Import-Module "$env:USERPROFILE\.code-notify\lib\CodeNotify.psm1" -Force -Verbose:$false
 Invoke-CodeNotify "project" @Args
 '@
     $cnpWrapper | Set-Content "$InstallDir\bin\cnp.ps1" -Encoding UTF8

@@ -113,6 +113,21 @@ jobs:
       run: |
         & "$env:USERPROFILE\.code-notify\bin\cn.ps1" version
 
+    - name: Test CLI commands (version shortcut)
+      run: |
+        $versionOutput = & "$env:USERPROFILE\.code-notify\bin\cn.ps1" -v | Out-String
+        Write-Host $versionOutput
+
+        if ($versionOutput -match 'VERBOSE:') {
+          Write-Host "ERROR: cn -v leaked PowerShell verbose import output" -ForegroundColor Red
+          exit 1
+        }
+
+        if ($versionOutput -notmatch 'code-notify version') {
+          Write-Host "ERROR: cn -v did not resolve to the version command" -ForegroundColor Red
+          exit 1
+        }
+
     - name: Test CLI commands (status)
       run: |
         & "$env:USERPROFILE\.code-notify\bin\cn.ps1" status
@@ -124,7 +139,7 @@ jobs:
         $updateOutput = & "$env:USERPROFILE\.code-notify\bin\cn.ps1" update check | Out-String
         Write-Host $updateOutput
 
-        if ($updateOutput -notmatch 'Already up to date') {
+        if ($updateOutput -notmatch 'Code-Notify is up to date') {
           Write-Host "ERROR: update check did not report the install as current" -ForegroundColor Red
           exit 1
         }
@@ -141,7 +156,7 @@ jobs:
         $updateOutput = & "$env:USERPROFILE\.code-notify\bin\cn.ps1" update | Out-String
         Write-Host $updateOutput
 
-        if ($updateOutput -notmatch 'Already up to date') {
+        if ($updateOutput -notmatch 'Code-Notify is up to date') {
           Write-Host "ERROR: update command did not skip reinstalling the current version" -ForegroundColor Red
           exit 1
         }
@@ -166,7 +181,7 @@ jobs:
     - name: Test enable/disable notifications
       run: |
         # Enable
-        & "$env:USERPROFILE\.code-notify\bin\cn.ps1" on
+        & "$env:USERPROFILE\.code-notify\bin\cn.ps1" on all
 
         # Check settings.json was created with hooks
         $settingsFile = "$env:USERPROFILE\.claude\settings.json"
@@ -183,7 +198,7 @@ jobs:
         Write-Host "OK: Notifications enabled, hooks configured" -ForegroundColor Green
 
         # Disable
-        & "$env:USERPROFILE\.code-notify\bin\cn.ps1" off
+        & "$env:USERPROFILE\.code-notify\bin\cn.ps1" off all
 
         $settings = Get-Content $settingsFile -Raw | ConvertFrom-Json
         if ($settings.hooks) {

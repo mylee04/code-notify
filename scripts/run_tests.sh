@@ -104,7 +104,7 @@ fi
 
 # Test 8: update check command works
 test_start "update check command"
-if CODE_NOTIFY_INSTALL_METHOD=script CODE_NOTIFY_LATEST_VERSION="$CURRENT_VERSION" ./bin/code-notify update check 2>&1 | grep -q "Already up to date"; then
+if CODE_NOTIFY_INSTALL_METHOD=script CODE_NOTIFY_LATEST_VERSION="$CURRENT_VERSION" ./bin/code-notify update check 2>&1 | grep -q "Code-Notify is up to date"; then
     test_pass
 else
     test_fail "update check command failed"
@@ -112,7 +112,7 @@ fi
 
 # Test 9: update command skips reinstalling current versions
 test_start "no-op update command"
-if CODE_NOTIFY_INSTALL_METHOD=script CODE_NOTIFY_LATEST_VERSION="$CURRENT_VERSION" ./bin/code-notify update 2>&1 | grep -q "Already up to date"; then
+if CODE_NOTIFY_INSTALL_METHOD=script CODE_NOTIFY_LATEST_VERSION="$CURRENT_VERSION" ./bin/code-notify update 2>&1 | grep -q "Code-Notify is up to date"; then
     test_pass
 else
     test_fail "update command did not skip reinstalling the current version"
@@ -124,6 +124,14 @@ if bash tests/test-project-trust-warning.sh >/dev/null 2>&1; then
     test_pass
 else
     test_fail "project trust warning behavior failed"
+fi
+
+# Test 11: explicit all aliases map to global behavior
+test_start "all tool aliases"
+if bash tests/test-all-alias.sh >/dev/null 2>&1; then
+    test_pass
+else
+    test_fail "all aliases failed"
 fi
 
 # Summary

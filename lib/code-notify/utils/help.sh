@@ -17,10 +17,13 @@ ${BOLD}USAGE:${RESET}
 
 ${BOLD}COMMANDS:${RESET}
     ${GREEN}on${RESET}              Enable notifications (all detected tools)
+    ${GREEN}on${RESET} all          Enable notifications (explicit alias for all detected tools)
     ${GREEN}on${RESET} <tool>       Enable for specific tool (claude/codex/gemini)
     ${GREEN}off${RESET}             Disable notifications (all tools)
+    ${GREEN}off${RESET} all         Disable notifications (explicit alias for all tools)
     ${GREEN}off${RESET} <tool>      Disable for specific tool
     ${GREEN}status${RESET}          Show status for all tools
+    ${GREEN}status${RESET} all      Show status for all tools (explicit alias)
     ${GREEN}test${RESET}            Send a test notification
     ${GREEN}update${RESET} [check]  Update code-notify or check the latest release
     ${GREEN}alerts${RESET} <cmd>    Configure which events trigger alerts
@@ -69,9 +72,12 @@ ${BOLD}ALIASES:${RESET}
 
 ${BOLD}EXAMPLES:${RESET}
     cn on                   # Enable for all detected tools
+    cn on all               # Same as cn on
     cn on claude            # Enable for Claude Code only
     cn off                  # Disable all
+    cn off all              # Same as cn off
     cn status               # Show status for all tools
+    cn status all           # Same as cn status
     cn test                 # Send test notification
     cn update check         # Check whether an update is needed and show the update command
     cn alerts               # Show alert type config

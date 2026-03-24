@@ -50,7 +50,7 @@ latest_override=$(CODE_NOTIFY_LATEST_VERSION="v9.9.9" get_latest_release_version
 pass "normalizes the latest release version override"
 
 script_check_output=$(CODE_NOTIFY_INSTALL_METHOD="script" CODE_NOTIFY_LATEST_VERSION="$VERSION" "$SCRIPT_DIR/../bin/code-notify" update check 2>&1)
-echo "$script_check_output" | grep -q "Already up to date" || fail "expected script update check to report an up-to-date install"
+echo "$script_check_output" | grep -q "Code-Notify is up to date" || fail "expected script update check to report an up-to-date install"
 echo "$script_check_output" | grep -q "scripts/install.sh" || fail "expected script update check to show the install script command"
 pass "update check reports when script installs are already current"
 
@@ -59,7 +59,7 @@ echo "$outdated_check_output" | grep -q "Update available: $VERSION -> 9.9.9" ||
 pass "update check reports when script installs are behind the latest release"
 
 noop_update_output=$(CODE_NOTIFY_INSTALL_METHOD="script" CODE_NOTIFY_LATEST_VERSION="$VERSION" "$SCRIPT_DIR/../bin/code-notify" update 2>&1)
-echo "$noop_update_output" | grep -q "Already up to date" || fail "expected update command to skip reinstalling the current version"
+echo "$noop_update_output" | grep -q "Code-Notify is up to date" || fail "expected update command to skip reinstalling the current version"
 if echo "$noop_update_output" | grep -q "Update complete!"; then
     fail "expected update command to skip the reinstall path when already current"
 fi

@@ -159,7 +159,7 @@ jobs:
         UPDATE_OUTPUT="$(CODE_NOTIFY_LATEST_VERSION="$CURRENT_VERSION" cn update check)"
         echo "$UPDATE_OUTPUT"
 
-        if ! echo "$UPDATE_OUTPUT" | grep -q 'Already up to date'; then
+        if ! echo "$UPDATE_OUTPUT" | grep -q 'Code-Notify is up to date'; then
           echo "ERROR: update check did not report the install as current"
           exit 1
         fi
@@ -176,7 +176,7 @@ jobs:
         UPDATE_OUTPUT="$(CODE_NOTIFY_LATEST_VERSION="$CURRENT_VERSION" cn update)"
         echo "$UPDATE_OUTPUT"
 
-        if ! echo "$UPDATE_OUTPUT" | grep -q 'Already up to date'; then
+        if ! echo "$UPDATE_OUTPUT" | grep -q 'Code-Notify is up to date'; then
           echo "ERROR: update command did not skip reinstalling the current version"
           exit 1
         fi
@@ -190,7 +190,7 @@ jobs:
         export PATH="$HOME/.local/bin:$PATH"
 
         # Enable
-        cn on
+        cn on all
 
         # Check settings.json was created with hooks
         SETTINGS_FILE="$HOME/.claude/settings.json"
@@ -206,7 +206,7 @@ jobs:
         echo "OK: Notifications enabled, hooks configured"
 
         # Disable
-        cn off
+        cn off all
 
         if jq -e '.hooks' "$SETTINGS_FILE" > /dev/null 2>&1; then
           echo "ERROR: hooks not removed from settings"

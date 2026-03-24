@@ -151,18 +151,31 @@ print_update_status() {
     local latest_version="$2"
     local comparison="$3"
 
-    info "Current version: $current_version"
-    info "Latest release: $latest_version"
-
     case "$comparison" in
         -1)
+            info "Current version: $current_version"
             warning "Update available: $current_version -> $latest_version"
             ;;
         0)
-            success "Already up to date"
+            info "Current version: $current_version"
+            success "Code-Notify is up to date ($current_version)"
             ;;
         1)
-            info "Installed version is newer than the latest release"
+            info "Current version: $current_version"
+            info "Installed version is newer than the latest release ($latest_version)"
+            ;;
+    esac
+}
+
+normalize_tool_argument() {
+    local tool="${1:-}"
+
+    case "$tool" in
+        ""|"all")
+            printf '%s\n' ""
+            ;;
+        *)
+            printf '%s\n' "$tool"
             ;;
     esac
 }
@@ -309,7 +322,8 @@ show_version() {
 
 # Enable notifications globally
 enable_notifications_global() {
-    local tool="${1:-}"
+    local tool
+    tool="$(normalize_tool_argument "${1:-}")"
 
     header "${ROCKET} Enabling Notifications"
     echo ""
@@ -400,7 +414,8 @@ enable_single_tool() {
 
 # Disable notifications globally
 disable_notifications_global() {
-    local tool="${1:-}"
+    local tool
+    tool="$(normalize_tool_argument "${1:-}")"
 
     header "${MUTE} Disabling Notifications"
     echo ""
@@ -462,6 +477,16 @@ disable_single_tool() {
 
 # Show current status
 show_status() {
+    local arg
+    local check_updates_flag=""
+
+    for arg in "$@"; do
+        if [[ "$arg" == "--check-updates" ]]; then
+            check_updates_flag="yes"
+            break
+        fi
+    done
+
     header "${INFO} Code-Notify Status"
     echo ""
 
@@ -576,7 +601,7 @@ show_status() {
     dim "code-notify version $VERSION"
 
     # Check for updates if --check-updates flag is passed
-    if [[ "$1" == "--check-updates" ]]; then
+    if [[ -n "$check_updates_flag" ]]; then
         check_for_updates
     fi
 }
