@@ -13,7 +13,7 @@ Desktop notifications for AI coding tools - get alerts when tasks complete or in
   <img src="assets/multi-tools-support-02.png" width="48%" alt="All tools enabled"/>
 </p>
 
-[![Version](https://img.shields.io/badge/version-1.6.9-blue.svg)](https://github.com/mylee04/code-notify/releases)
+[![Version](https://img.shields.io/badge/version-1.6.10-blue.svg)](https://github.com/mylee04/code-notify/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![macOS](https://img.shields.io/badge/macOS-supported-green.svg)](https://www.apple.com/macos)
 [![Linux](https://img.shields.io/badge/Linux-supported-green.svg)](https://www.linux.org/)
@@ -21,11 +21,11 @@ Desktop notifications for AI coding tools - get alerts when tasks complete or in
 
 ---
 
-## What's New in v1.6.9
+## What's New in v1.6.10
 
-- **Legacy Claude hooks are repaired during supported upgrades**: stale `claude-notify`-style Claude configs are migrated to the current `code-notify` hook format when users update through the supported install paths
-- **Claude idle dedupe now survives upgrades from older installs**: users who were still on the old blank-matcher Claude hooks no longer bypass the repeated `idle_prompt` suppression after updating
-- **Codex notify integration now reads Codex payload JSON directly**: completion notifications use Codex's `notify` payload format, and the docs/status output now clearly call out Codex's current completion-focused behavior
+- **Windows stale Claude hooks are detected more reliably**: old `notify.ps1 notification` / `notify.ps1 stop` hook commands are now treated as legacy and repaired during supported upgrades
+- **Claude hook repair now follows alternate Windows settings paths**: if Claude stores settings under `~/.config/.claude/settings.json`, code-notify now repairs that file too instead of only checking `~/.claude/settings.json`
+- **Repeated generic notifications after Windows upgrades are less likely to survive**: older blank-matcher Claude hook layouts now get migrated to the current `idle_prompt`-based code-notify hook format more consistently
 
 ---
 
@@ -60,7 +60,7 @@ cn update
 code-notify version
 ```
 
-If you were using the older `claude-notify` hook layout, supported upgrades now repair those Claude hooks automatically.
+If you were using the older `claude-notify` hook layout, supported upgrades now repair those Claude hooks automatically. On Windows, that repair also covers older `notify.ps1` hook layouts and alternate Claude settings locations such as `%USERPROFILE%\.config\.claude\settings.json`.
 
 **Linux / WSL**
 

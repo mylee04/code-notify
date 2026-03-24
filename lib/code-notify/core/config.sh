@@ -3,10 +3,25 @@
 # Configuration management for Code-Notify
 
 # Default paths - Claude Code
-CLAUDE_HOME="${CLAUDE_HOME:-$HOME/.claude}"
-GLOBAL_SETTINGS_FILE="$CLAUDE_HOME/settings.json"
-GLOBAL_HOOKS_FILE="$CLAUDE_HOME/hooks.json"  # Legacy support
-GLOBAL_HOOKS_DISABLED="$CLAUDE_HOME/hooks.json.disabled"
+DEFAULT_CLAUDE_HOME="$HOME/.claude"
+ALT_CLAUDE_SETTINGS_HOME="$HOME/.config/.claude"
+CLAUDE_HOME="${CLAUDE_HOME:-$DEFAULT_CLAUDE_HOME}"
+
+if [[ -n "${CLAUDE_SETTINGS_HOME:-}" ]]; then
+    RESOLVED_CLAUDE_SETTINGS_HOME="$CLAUDE_SETTINGS_HOME"
+elif [[ "$CLAUDE_HOME" != "$DEFAULT_CLAUDE_HOME" ]]; then
+    RESOLVED_CLAUDE_SETTINGS_HOME="$CLAUDE_HOME"
+elif [[ -f "$DEFAULT_CLAUDE_HOME/settings.json" || -f "$DEFAULT_CLAUDE_HOME/hooks.json" ]]; then
+    RESOLVED_CLAUDE_SETTINGS_HOME="$DEFAULT_CLAUDE_HOME"
+elif [[ -f "$ALT_CLAUDE_SETTINGS_HOME/settings.json" || -f "$ALT_CLAUDE_SETTINGS_HOME/hooks.json" ]]; then
+    RESOLVED_CLAUDE_SETTINGS_HOME="$ALT_CLAUDE_SETTINGS_HOME"
+else
+    RESOLVED_CLAUDE_SETTINGS_HOME="$DEFAULT_CLAUDE_HOME"
+fi
+
+GLOBAL_SETTINGS_FILE="$RESOLVED_CLAUDE_SETTINGS_HOME/settings.json"
+GLOBAL_HOOKS_FILE="$RESOLVED_CLAUDE_SETTINGS_HOME/hooks.json"  # Legacy support
+GLOBAL_HOOKS_DISABLED="$RESOLVED_CLAUDE_SETTINGS_HOME/hooks.json.disabled"
 CONFIG_DIR="$HOME/.config/code-notify"
 CONFIG_FILE="$CONFIG_DIR/config.json"
 BACKUP_DIR="$CONFIG_DIR/backups"
@@ -316,7 +331,9 @@ has_legacy_global_claude_hooks() {
 
     grep -q 'claude-notify' "$file" ||
         grep -qE 'notifier\.sh (notification|stop)"' "$file" ||
-        grep -q 'notifier.sh PreToolUse' "$file"
+        grep -q 'notifier.sh PreToolUse' "$file" ||
+        grep -qE 'notify\.ps1.* (notification|stop)"' "$file" ||
+        grep -qE 'notify\.ps1.* PreToolUse' "$file"
 }
 
 claude_global_hooks_need_repair() {

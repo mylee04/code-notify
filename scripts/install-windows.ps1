@@ -20,7 +20,7 @@ param(
 $ErrorActionPreference = "Stop"
 
 # Version
-$VERSION = "1.6.9"
+$VERSION = "1.6.10"
 
 # Colors and formatting
 function Write-Success { param([string]$Message) Write-Host "[OK] $Message" -ForegroundColor Green }
@@ -106,9 +106,15 @@ function Install-ClaudeNotify {
 # Code-Notify PowerShell Module
 # https://github.com/mylee04/code-notify
 
-$script:VERSION = "1.6.9"
-$script:ClaudeHome = "$env:USERPROFILE\.claude"
-$script:SettingsFile = "$script:ClaudeHome\settings.json"
+$script:VERSION = "1.6.10"
+$script:ClaudeHome = if ($env:CLAUDE_HOME) { $env:CLAUDE_HOME } else { "$env:USERPROFILE\.claude" }
+$script:DefaultSettingsFile = "$script:ClaudeHome\settings.json"
+$script:AlternateSettingsFile = "$env:USERPROFILE\.config\.claude\settings.json"
+$script:SettingsFile = if (-not $env:CLAUDE_HOME -and -not (Test-Path $script:DefaultSettingsFile) -and (Test-Path $script:AlternateSettingsFile)) {
+    $script:AlternateSettingsFile
+} else {
+    $script:DefaultSettingsFile
+}
 $script:NotificationsDir = "$script:ClaudeHome\notifications"
 $script:VoiceFile = "$script:NotificationsDir\voice-enabled"
 $script:SoundEnabledFile = "$script:NotificationsDir\sound-enabled"
@@ -577,7 +583,7 @@ function Test-LegacyClaudeHooks {
         return $false
     }
 
-    return ($raw -match 'claude-notify' -or $raw -match 'notify\.ps1 notification"' -or $raw -match 'notify\.ps1 stop"' -or $raw -match 'notify\.ps1 PreToolUse')
+    return ($raw -match 'claude-notify' -or $raw -match 'notify\.ps1.* notification"' -or $raw -match 'notify\.ps1.* stop"' -or $raw -match 'notify\.ps1.* PreToolUse')
 }
 
 function Repair-LegacyClaudeHooks {

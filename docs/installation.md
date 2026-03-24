@@ -94,7 +94,8 @@ cn status
 After installation, these files are created:
 
 - `~/.code-notify/` - Main installation directory
-- `~/.claude/settings.json` - Hook configuration (when enabled)
+- `~/.claude/settings.json` - Hook configuration on the default Claude Code path
+- `~/.config/.claude/settings.json` - Hook configuration on some Windows Claude Code setups
 - `~/.claude/notifications/voice-enabled` - Voice setting (if enabled)
 
 ### Uninstallation

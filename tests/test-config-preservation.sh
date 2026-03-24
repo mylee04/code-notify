@@ -691,6 +691,92 @@ EOF
         echo "✅ Legacy Claude hooks are repaired to the current code-notify config"
     )
 
+    (
+        unset CLAUDE_HOME
+        mkdir -p "$HOME/.config/.claude" "$HOME/.claude/notifications"
+        rm -f "$HOME/.claude/settings.json" "$HOME/.claude/hooks.json"
+        printf '{}\n' > "$HOME/.config/.claude/settings.json"
+
+        source "$SCRIPT_DIR/../lib/code-notify/utils/colors.sh"
+        source "$SCRIPT_DIR/../lib/code-notify/utils/detect.sh"
+        source "$SCRIPT_DIR/../lib/code-notify/core/config.sh"
+        source "$SCRIPT_DIR/../lib/code-notify/commands/global.sh"
+
+        is_tool_installed() { return 0; }
+
+        if [[ "$GLOBAL_SETTINGS_FILE" != "$HOME/.config/.claude/settings.json" ]]; then
+            echo "❌ Alternate Claude settings path was not detected"
+            echo "Resolved settings path: $GLOBAL_SETTINGS_FILE"
+            exit 1
+        fi
+
+        cat > "$GLOBAL_SETTINGS_FILE" << EOF
+{
+  "hooks": {
+    "Notification": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -ExecutionPolicy Bypass -File \"$HOME/.claude/notifications/notify.ps1\" notification"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -ExecutionPolicy Bypass -File \"$HOME/.claude/notifications/notify.ps1\" stop"
+          }
+        ]
+      }
+    ]
+  }
+}
+EOF
+
+        echo ""
+        echo "=== Testing alternate Claude settings path repair ==="
+
+        if ! claude_global_hooks_need_repair; then
+            echo "❌ Alternate-path Claude hooks were not flagged for repair"
+            cat "$GLOBAL_SETTINGS_FILE"
+            exit 1
+        fi
+        echo "✅ Alternate-path Claude hooks are detected as stale"
+
+        local output
+        output=$("$SCRIPT_DIR/../bin/code-notify" repair-hooks 2>&1) || {
+            echo "❌ code-notify repair-hooks failed for alternate Claude settings path"
+            echo "$output"
+            exit 1
+        }
+
+        grep -qF "\"matcher\": \"idle_prompt\"" "$GLOBAL_SETTINGS_FILE" || {
+            echo "❌ Alternate-path Claude config did not restore idle_prompt matcher"
+            cat "$GLOBAL_SETTINGS_FILE"
+            exit 1
+        }
+
+        if ! grep -qF "notification claude" "$GLOBAL_SETTINGS_FILE"; then
+            echo "❌ Alternate-path Claude config did not add the claude notification argument"
+            cat "$GLOBAL_SETTINGS_FILE"
+            exit 1
+        fi
+
+        if ! grep -qF "stop claude" "$GLOBAL_SETTINGS_FILE"; then
+            echo "❌ Alternate-path Claude config did not add the claude stop argument"
+            cat "$GLOBAL_SETTINGS_FILE"
+            exit 1
+        fi
+
+        echo "✅ Alternate Claude settings path is repaired to the current code-notify config"
+    )
+
     return $?
 }
 
