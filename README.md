@@ -13,7 +13,7 @@ Desktop notifications for AI coding tools - get alerts when tasks complete or in
   <img src="assets/multi-tools-support-02.png" width="48%" alt="All tools enabled"/>
 </p>
 
-[![Version](https://img.shields.io/badge/version-1.6.7-blue.svg)](https://github.com/mylee04/code-notify/releases)
+[![Version](https://img.shields.io/badge/version-1.6.8-blue.svg)](https://github.com/mylee04/code-notify/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![macOS](https://img.shields.io/badge/macOS-supported-green.svg)](https://www.apple.com/macos)
 [![Linux](https://img.shields.io/badge/Linux-supported-green.svg)](https://www.linux.org/)
@@ -21,11 +21,11 @@ Desktop notifications for AI coding tools - get alerts when tasks complete or in
 
 ---
 
-## What's New in v1.6.7
+## What's New in v1.6.8
 
-- **Windows `cn -v` now behaves like a real version shortcut**: it resolves directly to the version command instead of leaking PowerShell verbose module reload output
-- **Update output is cleaner when you're already current**: `cn update` and `cn update check` now keep the current version visible while using a shorter “Code-Notify is up to date” message
-- **Explicit `all` aliases are now accepted**: `cn on all`, `cn off all`, and `cn status all` work as direct aliases for the global commands
+- **npm is now a first-class install path**: `npm install -g code-notify` now provides `code-notify`, `cn`, and `cnp` on macOS, Linux, and Windows
+- **Repeated idle/input alerts are deduped**: repeated `idle_prompt`-style notification events are suppressed so sound playback does not keep firing while Claude stays idle
+- **`cn update` understands npm installs**: npm users now get the correct `npm install -g code-notify@latest` update path, including on Windows
 
 ---
 
