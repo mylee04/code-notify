@@ -92,10 +92,12 @@ curl -s https://raw.githubusercontent.com/mylee04/code-notify/main/docs/installa
 | Command              | Description                                  |
 | -------------------- | -------------------------------------------- |
 | `cn on`              | Enable notifications for all detected tools  |
+| `cn on all`          | Explicit alias for enabling all detected tools |
 | `cn on claude`       | Enable for Claude Code only                  |
 | `cn on codex`        | Enable for Codex only                        |
 | `cn on gemini`       | Enable for Gemini CLI only                   |
 | `cn off`             | Disable notifications                        |
+| `cn off all`         | Explicit alias for disabling all tools       |
 | `cn test`            | Send test notification                       |
 | `cn status`          | Show current status                          |
 | `cn update`          | Update code-notify                           |
@@ -108,6 +110,7 @@ curl -s https://raw.githubusercontent.com/mylee04/code-notify/main/docs/installa
 | `cnp on`             | Enable for current project only              |
 
 When enabling project notifications with `cnp on`, Code-Notify warns if Claude project trust does not appear to be accepted yet.
+`all` is also accepted as an explicit alias for global commands such as `cn on all`, `cn off all`, and `cn status all`.
 
 ## How It Works
 
