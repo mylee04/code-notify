@@ -158,6 +158,14 @@ else
     test_fail "codex payload parsing failed"
 fi
 
+# Test 15: Windows PowerShell status regex stays .NET-safe
+test_start "windows status regex"
+if bash tests/test-windows-status-regex.sh >/dev/null 2>&1; then
+    test_pass
+else
+    test_fail "windows status regex failed"
+fi
+
 # Summary
 echo ""
 echo "Test Summary:"

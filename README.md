@@ -13,7 +13,7 @@ Desktop notifications for AI coding tools - get alerts when tasks complete or in
   <img src="assets/multi-tools-support-02.png" width="48%" alt="All tools enabled"/>
 </p>
 
-[![Version](https://img.shields.io/badge/version-1.6.10-blue.svg)](https://github.com/mylee04/code-notify/releases)
+[![Version](https://img.shields.io/badge/version-1.6.11-blue.svg)](https://github.com/mylee04/code-notify/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![macOS](https://img.shields.io/badge/macOS-supported-green.svg)](https://www.apple.com/macos)
 [![Linux](https://img.shields.io/badge/Linux-supported-green.svg)](https://www.linux.org/)
@@ -21,11 +21,11 @@ Desktop notifications for AI coding tools - get alerts when tasks complete or in
 
 ---
 
-## What's New in v1.6.10
+## What's New in v1.6.11
 
-- **Windows stale Claude hooks are detected more reliably**: old `notify.ps1 notification` / `notify.ps1 stop` hook commands are now treated as legacy and repaired during supported upgrades
-- **Claude hook repair now follows alternate Windows settings paths**: if Claude stores settings under `~/.config/.claude/settings.json`, code-notify now repairs that file too instead of only checking `~/.claude/settings.json`
-- **Repeated generic notifications after Windows upgrades are less likely to survive**: older blank-matcher Claude hook layouts now get migrated to the current `idle_prompt`-based code-notify hook format more consistently
+- **`cn status` no longer throws a regex exception in PowerShell on Windows**: Codex status checks now use a PowerShell/.NET-safe regex when scanning `config.toml` for top-level `notify`
+- **Windows Codex status checks remain compatible with PowerShell 7.x**: the broken double-escaped pattern that produced `Unterminated [] set` errors has been removed
+- **Regression coverage now guards the Windows regex path**: the test suite now checks that the PowerShell-safe pattern stays in place and can optionally execute it when `pwsh` is available
 
 ---
 

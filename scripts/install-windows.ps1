@@ -20,7 +20,7 @@ param(
 $ErrorActionPreference = "Stop"
 
 # Version
-$VERSION = "1.6.10"
+$VERSION = "1.6.11"
 
 # Colors and formatting
 function Write-Success { param([string]$Message) Write-Host "[OK] $Message" -ForegroundColor Green }
@@ -106,7 +106,7 @@ function Install-ClaudeNotify {
 # Code-Notify PowerShell Module
 # https://github.com/mylee04/code-notify
 
-$script:VERSION = "1.6.10"
+$script:VERSION = "1.6.11"
 $script:ClaudeHome = if ($env:CLAUDE_HOME) { $env:CLAUDE_HOME } else { "$env:USERPROFILE\.claude" }
 $script:DefaultSettingsFile = "$script:ClaudeHome\settings.json"
 $script:AlternateSettingsFile = "$env:USERPROFILE\.config\.claude\settings.json"
@@ -169,7 +169,7 @@ function Test-TomlTopLevelKey {
     }
 
     $content = Get-Content $Path -Raw
-    $match = [regex]::Match($content, "(?m)^\\s*\\[")
+    $match = [regex]::Match($content, '(?m)^\s*\[')
     $prefix = if ($match.Success) { $content.Substring(0, $match.Index) } else { $content }
 
     return [bool]([regex]::IsMatch($prefix, "(?m)^\\s*$([regex]::Escape($Key))\\s*="))
