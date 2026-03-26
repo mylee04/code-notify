@@ -166,29 +166,44 @@ enable_notifications_project() {
     fi
     
     echo ""
-    dim "Note: Project settings override global settings"
+    dim "Note: Project settings override global settings, including the global mute file"
 }
 
 # Disable notifications for current project
 disable_notifications_project() {
     local project_root=$(get_project_root)
     local project_name=$(get_project_name)
+    local project_settings_file="$project_root/.claude/settings.json"
     local project_hooks_file="$project_root/.claude/hooks.json"
+    local removed_any=0
     
     header "${MUTE} Disabling Notifications for Project: $project_name"
     echo ""
     
-    if [[ ! -f "$project_hooks_file" ]]; then
+    if [[ ! -f "$project_settings_file" ]] && [[ ! -f "$project_hooks_file" ]]; then
         warning "No project-specific notifications to disable"
         info "Global settings will apply to this project"
         return 0
     fi
     
-    # Backup before removing
-    backup_config "$project_hooks_file"
-    
-    # Remove project hooks
-    rm "$project_hooks_file"
+    if [[ -f "$project_settings_file" ]]; then
+        backup_config "$project_settings_file"
+        disable_project_hooks_in_settings "$project_root" || return 1
+        removed_any=1
+    fi
+
+    if [[ -f "$project_hooks_file" ]]; then
+        backup_config "$project_hooks_file"
+        rm -f "$project_hooks_file"
+        removed_any=1
+    fi
+
+    if [[ $removed_any -eq 0 ]]; then
+        warning "No project-specific notifications to disable"
+        info "Global settings will apply to this project"
+        return 0
+    fi
+
     success "Project notifications DISABLED"
     
     # Check if .claude directory is empty and remove if so
@@ -200,7 +215,11 @@ disable_notifications_project() {
     echo ""
     if is_enabled_globally; then
         info "This project will now use global notification settings"
-        status_enabled "Global notifications are ENABLED"
+        if [[ -f "$HOME/.claude/notifications/disabled" ]]; then
+            status_disabled "Global notifications are MUTED by the kill switch"
+        else
+            status_enabled "Global notifications are ENABLED"
+        fi
     else
         info "No notifications will be sent for this project"
         status_disabled "Global notifications are DISABLED"
@@ -211,6 +230,8 @@ disable_notifications_project() {
 show_project_status() {
     local project_name=$(get_project_name)
     local project_root=$(get_project_root)
+    local project_settings_file="$project_root/.claude/settings.json"
+    local project_hooks_file="$project_root/.claude/hooks.json"
     
     header "${FOLDER} Project Notification Status"
     echo ""
@@ -221,16 +242,24 @@ show_project_status() {
     # Check project status
     if is_enabled_project; then
         status_enabled "Project notifications: ENABLED"
-        info "Config: $project_root/.claude/hooks.json"
+        if is_enabled_project_settings; then
+            info "Config: $project_settings_file"
+        else
+            info "Config: $project_hooks_file (legacy)"
+        fi
         echo ""
-        dim "Project settings override global settings"
+        dim "Project settings override global settings, including the global mute file"
     else
         status_disabled "Project notifications: DISABLED"
         echo ""
         # Show global status
         if is_enabled_globally; then
             info "Using global notification settings"
-            status_enabled "Global notifications: ENABLED"
+            if [[ -f "$HOME/.claude/notifications/disabled" ]]; then
+                status_disabled "Global notifications: MUTED by the kill switch"
+            else
+                status_enabled "Global notifications: ENABLED"
+            fi
         else
             info "No notifications configured for this project"
             status_disabled "Global notifications: DISABLED"

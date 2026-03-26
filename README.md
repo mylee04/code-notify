@@ -13,7 +13,7 @@ Desktop notifications for AI coding tools - get alerts when tasks complete or in
   <img src="assets/multi-tools-support-02.png" width="48%" alt="All tools enabled"/>
 </p>
 
-[![Version](https://img.shields.io/badge/version-1.6.11-blue.svg)](https://github.com/mylee04/code-notify/releases)
+[![Version](https://img.shields.io/badge/version-1.6.12-blue.svg)](https://github.com/mylee04/code-notify/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![macOS](https://img.shields.io/badge/macOS-supported-green.svg)](https://www.apple.com/macos)
 [![Linux](https://img.shields.io/badge/Linux-supported-green.svg)](https://www.linux.org/)
@@ -21,11 +21,11 @@ Desktop notifications for AI coding tools - get alerts when tasks complete or in
 
 ---
 
-## What's New in v1.6.11
+## What's New in v1.6.12
 
-- **`cn status` no longer throws a regex exception in PowerShell on Windows**: Codex status checks now use a PowerShell/.NET-safe regex when scanning `config.toml` for top-level `notify`
-- **Windows Codex status checks remain compatible with PowerShell 7.x**: the broken double-escaped pattern that produced `Unterminated [] set` errors has been removed
-- **Regression coverage now guards the Windows regex path**: the test suite now checks that the PowerShell-safe pattern stays in place and can optionally execute it when `pwsh` is available
+- **Project-scoped Claude hooks now override the global mute file correctly**: `cn off` can still mute global notifications instantly, but `cnp on` project hooks continue to work for that project
+- **Project commands are now consistent with `.claude/settings.json`**: `cnp on`, `cnp off`, and `cnp status` all use the current project settings format instead of mixing in legacy `hooks.json` assumptions
+- **Regression coverage now guards both project bugs**: the test suite now checks project kill-switch behavior and project `settings.json` consistency end to end
 
 ---
 
@@ -121,6 +121,7 @@ curl -s https://raw.githubusercontent.com/mylee04/code-notify/main/docs/installa
 | `cnp on`             | Enable for current project only              |
 
 When enabling project notifications with `cnp on`, Code-Notify warns if Claude project trust does not appear to be accepted yet.
+Project-scoped Claude hooks override the global mute file, so `cn off` will not suppress a project where `cnp on` is enabled.
 `all` is also accepted as an explicit alias for global commands such as `cn on all`, `cn off all`, and `cn status all`.
 
 ## How It Works

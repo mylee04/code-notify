@@ -205,10 +205,22 @@ update_rate_limit() {
     date +%s > "$lock_file"
 }
 
+is_project_scoped_notification() {
+    if [[ "${CODE_NOTIFY_SCOPE:-}" == "project" ]]; then
+        return 0
+    fi
+
+    if [[ "$RAW_ARG1" != "codex" ]] && [[ -n "$RAW_ARG3" ]]; then
+        return 0
+    fi
+
+    return 1
+}
+
 # Function to check if notification should be suppressed
 should_suppress_notification() {
     # Check kill switch first - instant disable without restart
-    if [[ -f "$HOME/.claude/notifications/disabled" ]]; then
+    if [[ -f "$HOME/.claude/notifications/disabled" ]] && ! is_project_scoped_notification; then
         return 0  # Suppress notification
     fi
 

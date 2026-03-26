@@ -681,6 +681,67 @@ PYTHON
     fi
 }
 
+# Disable hooks in project settings.json
+disable_project_hooks_in_settings() {
+    local project_root="${1:-$(get_project_root)}"
+    local project_settings="$project_root/$PROJECT_SETTINGS_FILE"
+
+    if [[ ! -f "$project_settings" ]]; then
+        return 0
+    fi
+
+    if has_jq; then
+        local settings new_settings
+        settings=$(cat "$project_settings")
+
+        if ! new_settings=$(echo "$settings" | jq 'del(.hooks)' 2>/dev/null); then
+            echo "Error: Failed to parse configuration JSON" >&2
+            echo "File unchanged: $project_settings" >&2
+            return 1
+        fi
+
+        if [[ "$new_settings" != "{}" ]]; then
+            atomic_write "$project_settings" "$new_settings"
+        else
+            rm -f "$project_settings"
+        fi
+    elif has_python3; then
+        python3 - "$project_settings" << 'PYTHON'
+import sys
+import json
+import os
+import tempfile
+
+file_path = sys.argv[1]
+with open(file_path, 'r') as f:
+    settings = json.load(f)
+
+if 'hooks' in settings:
+    del settings['hooks']
+
+if settings:
+    dir_path = os.path.dirname(file_path)
+    content = json.dumps(settings, indent=2)
+
+    fd, tmp_path = tempfile.mkstemp(dir=dir_path, prefix='.tmp.')
+    try:
+        with os.fdopen(fd, 'w') as f:
+            f.write(content)
+            f.write('\n')
+        os.replace(tmp_path, file_path)
+    except Exception:
+        os.unlink(tmp_path)
+        raise
+else:
+    os.remove(file_path)
+PYTHON
+    else
+        echo "Error: jq or python3 required to safely disable project hooks" >&2
+        echo "Install jq: brew install jq" >&2
+        return 1
+    fi
+}
+
 # Enable hooks in project settings.json
 enable_project_hooks_in_settings() {
     local project_root="${1:-$(get_project_root)}"

@@ -166,6 +166,22 @@ else
     test_fail "windows status regex failed"
 fi
 
+# Test 16: project-scoped hooks bypass the global kill switch
+test_start "project kill switch override"
+if bash tests/test-project-kill-switch.sh >/dev/null 2>&1; then
+    test_pass
+else
+    test_fail "project kill switch override failed"
+fi
+
+# Test 17: project status/disable stay aligned with settings.json
+test_start "project settings consistency"
+if bash tests/test-project-settings-consistency.sh >/dev/null 2>&1; then
+    test_pass
+else
+    test_fail "project settings consistency failed"
+fi
+
 # Summary
 echo ""
 echo "Test Summary:"

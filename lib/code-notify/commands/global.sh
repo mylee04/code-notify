@@ -518,7 +518,7 @@ show_status() {
 
     # Check for kill switch
     if [[ -f "$HOME/.claude/notifications/disabled" ]]; then
-        echo "  ${MUTE} Kill switch: ${YELLOW}ACTIVE${RESET} (instant disable)"
+        echo "  ${MUTE} Kill switch: ${YELLOW}ACTIVE${RESET} (suppresses global notifications; project-scoped hooks still run)"
         echo ""
     fi
 
