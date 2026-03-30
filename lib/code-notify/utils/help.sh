@@ -2,6 +2,10 @@
 
 # Shared help text for Code-Notify
 
+is_macos_help_context() {
+    [[ "$(uname -s)" == "Darwin" ]]
+}
+
 # Show help message
 # Usage: show_help [command_name]
 show_help() {
@@ -28,6 +32,15 @@ ${BOLD}COMMANDS:${RESET}
     ${GREEN}update${RESET} [check]  Update code-notify or check the latest release
     ${GREEN}alerts${RESET} <cmd>    Configure which events trigger alerts
     ${GREEN}voice${RESET} <cmd>     Voice notification commands
+EOF
+
+    if is_macos_help_context; then
+        cat << EOF
+    ${GREEN}click-through${RESET}   Configure which app opens on notification click
+EOF
+    fi
+
+    cat << EOF
     ${GREEN}setup${RESET}           Run initial setup wizard
     ${GREEN}help${RESET}            Show this help message
     ${GREEN}version${RESET}         Show version information
@@ -67,6 +80,22 @@ ${BOLD}SOUND COMMANDS:${RESET}
     ${GREEN}sound test${RESET}          Play current sound
     ${GREEN}sound list${RESET}          Show available system sounds
     ${GREEN}sound status${RESET}        Show sound configuration
+EOF
+
+    if is_macos_help_context; then
+        cat << EOF
+
+${BOLD}CLICK-THROUGH COMMANDS:${RESET}
+    ${GREEN}click-through${RESET}              Show current mappings
+    ${GREEN}click-through add${RESET} [name]   Add an app mapping
+    ${GREEN}click-through remove${RESET}       Interactively remove mappings
+    ${GREEN}click-through reset${RESET}        Reset to built-in defaults
+
+    Note: controls which app Code-Notify activates when you click a macOS notification.
+EOF
+    fi
+
+    cat << EOF
 
 ${BOLD}ALIASES:${RESET}
     ${CYAN}cn${RESET}  <command>   Main command
@@ -87,6 +116,17 @@ ${BOLD}EXAMPLES:${RESET}
     cn alerts reset         # Back to idle_prompt only (less noisy)
     cn sound on             # Enable notification sounds
     cn sound set ~/ding.wav # Use custom sound
+EOF
+
+    if is_macos_help_context; then
+        cat << EOF
+    cn click-through        # Show current click-through mappings
+    cn click-through add    # Add an app mapping
+    cn click-through remove # Interactively remove mappings
+EOF
+    fi
+
+    cat << EOF
     cnp on                  # Enable for current project
 
 ${BOLD}MORE INFO:${RESET}

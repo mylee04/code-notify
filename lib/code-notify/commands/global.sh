@@ -7,6 +7,7 @@ GLOBAL_CMD_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$GLOBAL_CMD_DIR/../utils/voice.sh"
 source "$GLOBAL_CMD_DIR/../utils/sound.sh"
 source "$GLOBAL_CMD_DIR/../utils/help.sh"
+source "$GLOBAL_CMD_DIR/../utils/click-through.sh"
 
 CODE_NOTIFY_RELEASES_API="https://api.github.com/repos/mylee04/code-notify/releases/latest"
 
@@ -42,6 +43,9 @@ handle_global_command() {
             ;;
         "alerts")
             handle_alerts_command "$@"
+            ;;
+        "click-through")
+            handle_click_through_command "$@"
             ;;
         "help")
             show_help
