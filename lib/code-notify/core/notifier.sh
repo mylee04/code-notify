@@ -220,10 +220,10 @@ is_project_scoped_notification() {
 # Detect if the tool's desktop app (GUI) is running (macOS only).
 # Desktop apps that wrap the CLI (e.g. Codex app) send their own notifications,
 # so code-notify should suppress to avoid duplicates.
-# Set CODE_NOTIFY_SKIP_DESKTOP_CHECK=1 to disable (used in tests).
+# Set CODE_NOTIFY_SKIP_CODEX_DESKTOP_CHECK=1 to disable (used in tests).
 has_desktop_app_running() {
     [[ "$(uname -s)" != "Darwin" ]] && return 1
-    [[ "${CODE_NOTIFY_SKIP_DESKTOP_CHECK:-}" == "1" ]] && return 1
+    [[ "${CODE_NOTIFY_SKIP_CODEX_DESKTOP_CHECK:-}" == "1" ]] && return 1
 
     local tool="$1"
     case "$tool" in
