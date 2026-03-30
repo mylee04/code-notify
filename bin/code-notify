@@ -52,6 +52,11 @@ case "$COMMAND_NAME" in
                 source "$LIB_DIR/commands/global.sh"
                 handle_global_command "$@"
                 ;;
+            "click-through")
+                [[ "$(uname -s)" != "Darwin" ]] && { error "Unknown command: $1"; echo "Try 'cn help' for usage"; exit 1; }
+                source "$LIB_DIR/commands/global.sh"
+                handle_global_command "$@"
+                ;;
             "repair-hooks")
                 shift
                 repair_legacy_hooks_command "${1:-}"
@@ -74,6 +79,11 @@ case "$COMMAND_NAME" in
         # Called as 'code-notify' - full command parsing
         case "${1:-help}" in
             "on"|"off"|"status"|"test"|"setup"|"voice"|"sound"|"alerts"|"update")
+                source "$LIB_DIR/commands/global.sh"
+                handle_global_command "$@"
+                ;;
+            "click-through")
+                [[ "$(uname -s)" != "Darwin" ]] && { error "Unknown command: $1"; echo "Try 'code-notify help' for usage"; exit 1; }
                 source "$LIB_DIR/commands/global.sh"
                 handle_global_command "$@"
                 ;;
