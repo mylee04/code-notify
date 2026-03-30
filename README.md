@@ -13,7 +13,7 @@ Desktop notifications for AI coding tools - get alerts when tasks complete or in
   <img src="assets/multi-tools-support-02.png" width="48%" alt="All tools enabled"/>
 </p>
 
-[![Version](https://img.shields.io/badge/version-1.6.12-blue.svg)](https://github.com/mylee04/code-notify/releases)
+[![Version](https://img.shields.io/badge/version-1.7.0-blue.svg)](https://github.com/mylee04/code-notify/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![macOS](https://img.shields.io/badge/macOS-supported-green.svg)](https://www.apple.com/macos)
 [![Linux](https://img.shields.io/badge/Linux-supported-green.svg)](https://www.linux.org/)
@@ -21,11 +21,11 @@ Desktop notifications for AI coding tools - get alerts when tasks complete or in
 
 ---
 
-## What's New in v1.6.12
+## What's New in v1.7.0
 
-- **Project-scoped Claude hooks now override the global mute file correctly**: `cn off` can still mute global notifications instantly, but `cnp on` project hooks continue to work for that project
-- **Project commands are now consistent with `.claude/settings.json`**: `cnp on`, `cnp off`, and `cnp status` all use the current project settings format instead of mixing in legacy `hooks.json` assumptions
-- **Regression coverage now guards both project bugs**: the test suite now checks project kill-switch behavior and project `settings.json` consistency end to end
+- **New macOS click-through commands**: use `cn click-through` to choose which app opens when you click a notification
+- **Embedded terminal support is much better**: IDE terminals such as PhpStorm can now map their runtime terminal key to the app bundle that should be activated
+- **Reviewer edge cases are covered**: click-through lookup now handles empty `TERM_PROGRAM` cases and search-based adds now prefer the live runtime terminal key
 
 ---
 
@@ -35,6 +35,7 @@ Desktop notifications for AI coding tools - get alerts when tasks complete or in
 - **Works everywhere** - Terminal, VSCode, Cursor, or any editor
 - **Cross-platform** - macOS, Linux, Windows
 - **Native notifications** - Uses system notification APIs
+- **macOS click-through control** - Choose which app notification clicks activate
 - **Sound notifications** - Play custom sounds on task completion
 - **Voice announcements** - Hear when tasks complete (macOS, Windows)
 - **Tool-specific messages** - "Claude completed the task", "Codex completed the task"
@@ -113,6 +114,8 @@ curl -s https://raw.githubusercontent.com/mylee04/code-notify/main/docs/installa
 | `cn status`          | Show current status                          |
 | `cn update`          | Update code-notify                           |
 | `cn update check`    | Check the latest release and show the update command |
+| `cn click-through`   | Show current macOS click-through mappings    |
+| `cn click-through add <app>` | Add a macOS click-through mapping    |
 | `cn alerts`          | Configure which events trigger notifications |
 | `cn sound on`        | Enable sound notifications                   |
 | `cn sound set <path>`| Use custom sound file                        |
@@ -194,6 +197,13 @@ exec $SHELL   # Reload shell
 cn status     # Check if enabled
 cn test       # Test notification
 brew install terminal-notifier  # Better notifications (macOS)
+```
+
+**Notification click opens the wrong macOS app?**
+
+```bash
+cn click-through add PhpStorm
+cn test
 ```
 
 **Installed with npm?**

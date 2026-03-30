@@ -137,6 +137,15 @@ npm install -g code-notify
 cn on
 ```
 
+### macOS Embedded Terminals
+
+If clicking a notification opens `Terminal.app` instead of your editor or IDE terminal, add a click-through mapping:
+
+```bash
+cn click-through add PhpStorm
+cn test
+```
+
 ### Manual Installation
 
 ```bash
