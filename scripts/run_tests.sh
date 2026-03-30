@@ -182,7 +182,15 @@ else
     test_fail "project settings consistency failed"
 fi
 
-# Test 18: click-through commands persist mappings and drive notifier activation
+# Test 18: click-through resolver keeps lookup order and defaults stable
+test_start "click-through resolver"
+if bash tests/test-click-through-resolver.sh >/dev/null 2>&1; then
+    test_pass
+else
+    test_fail "click-through resolver failed"
+fi
+
+# Test 19: click-through commands persist mappings and drive notifier activation
 test_start "click-through commands"
 if bash tests/test-click-through.sh >/dev/null 2>&1; then
     test_pass

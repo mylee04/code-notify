@@ -15,7 +15,9 @@ NOTIFIER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$NOTIFIER_DIR/../utils/detect.sh"
 source "$NOTIFIER_DIR/../utils/voice.sh"
 source "$NOTIFIER_DIR/../utils/sound.sh"
-source "$NOTIFIER_DIR/../utils/click-through-common.sh"
+source "$NOTIFIER_DIR/../utils/click-through-store.sh"
+source "$NOTIFIER_DIR/../utils/click-through-runtime.sh"
+source "$NOTIFIER_DIR/../utils/click-through-resolver.sh"
 
 has_jq() {
     command -v jq >/dev/null 2>&1
@@ -329,24 +331,7 @@ fi
 
 # Get terminal bundle ID for macOS activation
 get_terminal_bundle_id() {
-    local term_prog bundle_id
-
-    bundle_id=$(click_through_lookup_bundle_id_for_current_context || true)
-    if [[ -n "$bundle_id" ]]; then
-        printf '%s\n' "$bundle_id"
-        return
-    fi
-
-    term_prog=$(click_through_get_runtime_term_program || true)
-    if [[ -n "$term_prog" ]]; then
-        bundle_id=$(click_through_get_builtin_bundle_id_for_term_program "$term_prog" || true)
-        if [[ -n "$bundle_id" ]]; then
-            printf '%s\n' "$bundle_id"
-            return
-        fi
-    fi
-
-    click_through_get_fallback_bundle_id
+    click_through_resolve_activation_bundle_id
 }
 
 # Function to send notification on macOS

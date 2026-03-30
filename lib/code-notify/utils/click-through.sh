@@ -4,75 +4,9 @@
 # Maps TERM_PROGRAM values to bundle IDs used by terminal-notifier -activate.
 
 CLICK_THROUGH_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$CLICK_THROUGH_DIR/click-through-common.sh"
-
-click_through_has_entries() {
-    local line
-    while IFS= read -r line; do
-        [[ -n "$line" ]] && return 0
-    done < <(click_through_each_entry)
-    return 1
-}
-
-click_through_write_entries() {
-    local entries="$1"
-    mkdir -p "$(dirname "$CLICK_THROUGH_CONFIG")"
-
-    {
-        echo "# Code-Notify click-through configuration"
-        echo "# Maps TERM_PROGRAM values to macOS bundle IDs"
-        echo ""
-        if [[ -n "$entries" ]]; then
-            printf '%s\n' "$entries"
-        fi
-    } > "$CLICK_THROUGH_CONFIG"
-}
-
-upsert_click_through_entry() {
-    local term_prog="$1"
-    local bundle_id="$2"
-    local entries=""
-    local line key value
-
-    while IFS= read -r line; do
-        key="${line%%=*}"
-        value="${line#*=}"
-        if [[ "$key" == "$term_prog" ]] || [[ "$value" == "$bundle_id" ]]; then
-            continue
-        fi
-        [[ -n "$entries" ]] && entries+=$'\n'
-        entries+="$line"
-    done < <(click_through_each_entry)
-
-    [[ -n "$entries" ]] && entries+=$'\n'
-    entries+="${term_prog}=${bundle_id}"
-    click_through_write_entries "$entries"
-}
-
-remove_click_through_entry() {
-    local target="$1"
-    local entries=""
-    local removed=1
-    local line key value
-
-    while IFS= read -r line; do
-        key="${line%%=*}"
-        value="${line#*=}"
-        if [[ "$key" == "$target" ]] || [[ "$value" == "$target" ]]; then
-            removed=0
-            continue
-        fi
-        [[ -n "$entries" ]] && entries+=$'\n'
-        entries+="$line"
-    done < <(click_through_each_entry)
-
-    if [[ $removed -ne 0 ]]; then
-        return 1
-    fi
-
-    click_through_write_entries "$entries"
-    return 0
-}
+source "$CLICK_THROUGH_DIR/click-through-store.sh"
+source "$CLICK_THROUGH_DIR/click-through-runtime.sh"
+source "$CLICK_THROUGH_DIR/click-through-resolver.sh"
 
 collect_click_through_search_results() {
     local query="$1"
@@ -170,7 +104,7 @@ show_click_through_status() {
         key="${line%%=*}"
         value="${line#*=}"
         printf '  %s%-20s%s -> %s%s%s\n' "$BOLD" "$key" "$RESET" "$DIM" "$value" "$RESET"
-    done < <(click_through_each_entry)
+    done < <(click_through_each_config_entry)
 
     echo ""
     dim "  Config: ${CLICK_THROUGH_CONFIG}"
@@ -180,7 +114,7 @@ run_click_through_add() {
     local query="${1:-}"
     local app_path=""
     local bundle_id app_name term_prog default_term input
-    local auto_detected=0 existing_bundle existing_term
+    local auto_detected=0 existing_term
 
     echo ""
     header "  Add Click-Through App"
@@ -207,21 +141,10 @@ run_click_through_add() {
     [[ -n "$bundle_id" ]] || { error "Could not read bundle ID from: $app_path"; return 1; }
 
     app_name=$(basename "$app_path" .app)
-    default_term=$(click_through_get_preferred_term_program "$bundle_id" "$app_name")
+    default_term=$(click_through_resolve_default_term_program "$bundle_id" "$app_name")
 
-    term_prog=$(click_through_get_runtime_term_program || true)
-    if [[ "$auto_detected" -eq 1 ]] && [[ -n "$term_prog" ]]; then
-        existing_bundle=$(click_through_lookup_bundle_id "$term_prog" || true)
-        if [[ "$existing_bundle" == "$bundle_id" ]]; then
-            echo ""
-            info "Mapping already exists: ${BOLD}${term_prog}${RESET} -> ${DIM}${bundle_id}${RESET}"
-            dim "  Run ${BOLD}cn click-through remove${RESET} to delete it."
-            return 0
-        fi
-    fi
-
-    if [[ "$auto_detected" -eq 1 ]] && [[ -z "$term_prog" ]]; then
-        existing_term=$(click_through_lookup_term_program_by_bundle_id "$bundle_id" || true)
+    if [[ "$auto_detected" -eq 1 ]]; then
+        existing_term=$(click_through_find_existing_mapping_term_program "$bundle_id" || true)
         if [[ -n "$existing_term" ]]; then
             echo ""
             info "Mapping already exists: ${BOLD}${existing_term}${RESET} -> ${DIM}${bundle_id}${RESET}"
@@ -242,7 +165,7 @@ run_click_through_add() {
     term_prog="${input:-$default_term}"
     [[ -n "$term_prog" ]] || { error "TERM_PROGRAM cannot be empty."; return 1; }
 
-    upsert_click_through_entry "$term_prog" "$bundle_id"
+    click_through_upsert_entry "$term_prog" "$bundle_id"
     echo ""
     success "Saved: TERM_PROGRAM=${term_prog} -> ${app_name} (${bundle_id})"
 }
@@ -299,7 +222,7 @@ run_click_through_remove() {
         terms+=("${line%%=*}")
         bundles+=("${line#*=}")
         selected+=(0)
-    done < <(click_through_each_entry)
+    done < <(click_through_each_config_entry)
 
     echo ""
     header "  Remove Click-Through Entries"
