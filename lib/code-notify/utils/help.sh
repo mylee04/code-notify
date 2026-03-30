@@ -88,8 +88,10 @@ EOF
 ${BOLD}CLICK-THROUGH COMMANDS:${RESET}
     ${GREEN}click-through${RESET}              Show current mappings
     ${GREEN}click-through add${RESET} [name]   Add an app mapping
-    ${GREEN}click-through remove${RESET}       Remove a mapping
+    ${GREEN}click-through remove${RESET}       Interactively remove mappings
     ${GREEN}click-through reset${RESET}        Reset to built-in defaults
+
+    Note: controls which app Code-Notify activates when you click a macOS notification.
 EOF
     fi
 
@@ -120,6 +122,7 @@ EOF
         cat << EOF
     cn click-through        # Show current click-through mappings
     cn click-through add    # Add an app mapping
+    cn click-through remove # Interactively remove mappings
 EOF
     fi
 

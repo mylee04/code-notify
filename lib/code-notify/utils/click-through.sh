@@ -69,6 +69,22 @@ click_through_lookup_bundle_id() {
     return 1
 }
 
+click_through_lookup_term_program_by_bundle_id() {
+    local bundle_id="$1"
+    local line key value
+
+    while IFS= read -r line; do
+        key="${line%%=*}"
+        value="${line#*=}"
+        if [[ "$value" == "$bundle_id" ]]; then
+            printf '%s\n' "$key"
+            return 0
+        fi
+    done < <(click_through_each_entry)
+
+    return 1
+}
+
 click_through_write_entries() {
     local entries="$1"
     mkdir -p "$(dirname "$CLICK_THROUGH_CONFIG")"
@@ -132,6 +148,11 @@ remove_click_through_entry() {
 detect_parent_app_path() {
     local pid=$$
     local parent command app_path
+
+    if [[ -n "${CODE_NOTIFY_CLICK_THROUGH_APP_PATH:-}" ]] && [[ -d "${CODE_NOTIFY_CLICK_THROUGH_APP_PATH}" ]]; then
+        printf '%s\n' "${CODE_NOTIFY_CLICK_THROUGH_APP_PATH}"
+        return 0
+    fi
 
     while [[ "$pid" -gt 1 ]]; do
         parent=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')
@@ -257,6 +278,7 @@ run_click_through_add() {
     local query="${1:-}"
     local app_path=""
     local bundle_id app_name term_prog default_term input
+    local auto_detected=0 existing_bundle existing_term
 
     echo ""
     header "  Add Click-Through App"
@@ -265,6 +287,7 @@ run_click_through_add() {
         app_path=$(detect_parent_app_path 2>/dev/null || true)
         if [[ -n "$app_path" ]]; then
             query="$app_path"
+            auto_detected=1
         else
             printf '  Enter app name or path to .app: '
             read -r query
@@ -288,6 +311,26 @@ run_click_through_add() {
         default_term=$(click_through_guess_term_program "$bundle_id" "$app_name")
     fi
 
+    if [[ "$auto_detected" -eq 1 ]] && [[ -n "${TERM_PROGRAM:-}" ]]; then
+        existing_bundle=$(click_through_lookup_bundle_id "${TERM_PROGRAM}" || true)
+        if [[ "$existing_bundle" == "$bundle_id" ]]; then
+            echo ""
+            info "Mapping already exists: ${BOLD}${TERM_PROGRAM}${RESET} -> ${DIM}${bundle_id}${RESET}"
+            dim "  Run ${BOLD}cn click-through remove${RESET} to delete it."
+            return 0
+        fi
+    fi
+
+    if [[ "$auto_detected" -eq 1 ]] && [[ -z "${TERM_PROGRAM:-}" ]]; then
+        existing_term=$(click_through_lookup_term_program_by_bundle_id "$bundle_id" || true)
+        if [[ -n "$existing_term" ]]; then
+            echo ""
+            info "Mapping already exists: ${BOLD}${existing_term}${RESET} -> ${DIM}${bundle_id}${RESET}"
+            dim "  Run ${BOLD}cn click-through remove${RESET} to delete it."
+            return 0
+        fi
+    fi
+
     echo ""
     echo "  App:            ${BOLD}${app_name}${RESET}  ${DIM}(${bundle_id})${RESET}"
     echo "  TERM_PROGRAM:   ${BOLD}${default_term}${RESET}"
@@ -305,66 +348,135 @@ run_click_through_add() {
     success "Saved: TERM_PROGRAM=${term_prog} -> ${app_name} (${bundle_id})"
 }
 
+draw_click_through_remove_item() {
+    local idx="$1"
+    local current="$2"
+    local term_prog="$3"
+    local bundle_id="$4"
+    local is_selected="$5"
+    local pointer="   "
+    local checkbox="${DIM}[ ]${RESET}"
+    local padded
+
+    if [[ "$idx" -eq "$current" ]]; then
+        pointer=" ${CYAN}>${RESET} "
+    fi
+
+    if [[ "$is_selected" -eq 1 ]]; then
+        checkbox="${GREEN}[x]${RESET}"
+    fi
+
+    padded=$(printf '%-20s' "$term_prog")
+    printf '\e[2K\r%s%s %s  %s%s%s\n' \
+        "$pointer" "$checkbox" "$padded" \
+        "$DIM" "$bundle_id" "$RESET"
+}
+
+draw_click_through_remove_footer() {
+    local total="$1"
+    shift
+    local selected_count=0
+    local value
+
+    for value in "$@"; do
+        [[ "$value" -eq 1 ]] && selected_count=$((selected_count + 1))
+    done
+
+    printf '\e[2K\r  %s%d / %d selected%s' "$DIM" "$selected_count" "$total" "$RESET"
+}
+
 run_click_through_remove() {
-    local target="${1:-}"
     local -a terms=()
     local -a bundles=()
-    local line choice
+    local -a selected=()
+    local line
 
     if ! click_through_has_entries; then
         info "No click-through mappings to remove."
         return 0
     fi
 
-    if [[ -n "$target" ]]; then
-        if remove_click_through_entry "$target"; then
-            success "Removed: $target"
-            return 0
-        fi
-        error "No mapping found for: $target"
-        return 1
-    fi
-
     while IFS= read -r line; do
         terms+=("${line%%=*}")
         bundles+=("${line#*=}")
+        selected+=(0)
     done < <(click_through_each_entry)
 
     echo ""
-    header "  Remove Click-Through Entry"
+    header "  Remove Click-Through Entries"
+    echo ""
+    dim "  Up/Down move  Space toggle  Enter remove  q cancel"
     echo ""
 
-    local idx
+    local idx current=0 total="${#terms[@]}"
     for idx in "${!terms[@]}"; do
-        printf '  %s%2d)%s %-20s  %s%s%s\n' \
-            "$BOLD" "$((idx + 1))" "$RESET" \
-            "${terms[$idx]}" \
-            "$DIM" "${bundles[$idx]}" "$RESET"
+        draw_click_through_remove_item "$idx" "$current" "${terms[$idx]}" "${bundles[$idx]}" "${selected[$idx]}"
+    done
+    draw_click_through_remove_footer "$total" "${selected[@]}"
+
+    local key="" selected_count=0 entries="" removed_terms=""
+    while true; do
+        IFS= read -rsn1 key || true
+
+        case "$key" in
+            $'\x1b')
+                read -rsn2 key || true
+                case "$key" in
+                    "[A")
+                        [[ "$current" -gt 0 ]] && current=$((current - 1))
+                        ;;
+                    "[B")
+                        [[ "$current" -lt $((total - 1)) ]] && current=$((current + 1))
+                        ;;
+                esac
+                ;;
+            " ")
+                if [[ "${selected[$current]}" -eq 1 ]]; then
+                    selected[$current]=0
+                else
+                    selected[$current]=1
+                fi
+                ;;
+            ""|$'\n')
+                break
+                ;;
+            "q"|"Q")
+                echo ""
+                echo ""
+                dim "  Cancelled."
+                return 0
+                ;;
+        esac
+
+        printf '\e[%dA' "$total"
+        for idx in "${!terms[@]}"; do
+            draw_click_through_remove_item "$idx" "$current" "${terms[$idx]}" "${bundles[$idx]}" "${selected[$idx]}"
+        done
+        draw_click_through_remove_footer "$total" "${selected[@]}"
     done
 
-    echo ""
-    printf '  Select to remove [1-%d] (or q to cancel): ' "${#terms[@]}"
-    read -r choice
+    for idx in "${!terms[@]}"; do
+        if [[ "${selected[$idx]}" -eq 1 ]]; then
+            selected_count=$((selected_count + 1))
+            [[ -n "$removed_terms" ]] && removed_terms+=", "
+            removed_terms+="${terms[$idx]}"
+            continue
+        fi
+        [[ -n "$entries" ]] && entries+=$'\n'
+        entries+="${terms[$idx]}=${bundles[$idx]}"
+    done
 
-    case "$choice" in
-        q|Q|"")
-            dim "  Cancelled."
-            return 0
-            ;;
-    esac
-
-    if [[ "$choice" -lt 1 ]] || [[ "$choice" -gt ${#terms[@]} ]] 2>/dev/null; then
-        error "Invalid selection."
-        return 1
-    fi
-
-    if remove_click_through_entry "${terms[$((choice - 1))]}"; then
-        success "Removed: ${terms[$((choice - 1))]} -> ${bundles[$((choice - 1))]}"
+    if [[ "$selected_count" -eq 0 ]]; then
+        echo ""
+        echo ""
+        info "No mappings selected."
         return 0
     fi
 
-    error "Failed to remove mapping."
-    return 1
+    click_through_write_entries "$entries"
+    echo ""
+    echo ""
+    success "Removed ${selected_count} mapping(s): ${removed_terms}"
 }
 
 show_click_through_help() {
@@ -378,15 +490,17 @@ ${BOLD}USAGE:${RESET}
 ${BOLD}COMMANDS:${RESET}
     ${GREEN}status${RESET}           Show current mappings (default)
     ${GREEN}add${RESET} [name]       Add an app mapping (auto-detect or search)
-    ${GREEN}remove${RESET} [target]  Remove a mapping by TERM_PROGRAM or bundle ID
+    ${GREEN}remove${RESET}           Interactively remove one or more mappings
     ${GREEN}reset${RESET}            Remove all custom mappings
     ${GREEN}help${RESET}             Show this help text
+
+    Note: controls which app Code-Notify activates when you click a macOS notification.
 
 ${BOLD}EXAMPLES:${RESET}
     cn click-through
     cn click-through add
     cn click-through add Ghostty
-    cn click-through remove ghostty
+    cn click-through remove
     cn click-through reset
 
 EOF
@@ -404,7 +518,7 @@ handle_click_through_command() {
             run_click_through_add "${1:-}"
             ;;
         "remove"|"rm")
-            run_click_through_remove "${1:-}"
+            run_click_through_remove
             ;;
         "reset")
             rm -f "$CLICK_THROUGH_CONFIG"
