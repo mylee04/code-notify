@@ -28,6 +28,7 @@ run_codex_notifier() {
 
     PATH="$fake_path" \
     CODE_NOTIFY_NOTIFICATION_RATE_LIMIT_SECONDS=180 \
+    CODE_NOTIFY_SKIP_DESKTOP_CHECK=1 \
     bash "$NOTIFIER" codex "$payload"
 }
 
