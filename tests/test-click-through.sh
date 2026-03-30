@@ -15,15 +15,17 @@ if [[ "$(uname -s)" != "Darwin" ]]; then
 fi
 
 test_dir="$(mktemp -d)"
-trap 'rm -rf "$test_dir" /tmp/FakeCodex.app' EXIT
+trap 'rm -rf "$test_dir"' EXIT
 
 export HOME="$test_dir/home"
 fake_bin="$test_dir/bin"
 notification_log="$test_dir/terminal-notifier.log"
 config_file="$HOME/.code-notify/click-through.conf"
-fake_app="/tmp/FakeCodex.app"
+apps_dir="$HOME/Applications"
+fake_app="$apps_dir/FakeCodex.app"
+phpstorm_app="$apps_dir/PhpStorm.app"
 
-mkdir -p "$HOME/.code-notify" "$HOME/.claude/notifications" "$HOME/.claude/logs" "$fake_bin" "$fake_app/Contents"
+mkdir -p "$HOME/.code-notify" "$HOME/.claude/notifications" "$HOME/.claude/logs" "$fake_bin" "$fake_app/Contents" "$phpstorm_app/Contents"
 
 cat > "$fake_bin/terminal-notifier" <<EOF
 #!/bin/bash
@@ -38,6 +40,17 @@ cat > "$fake_app/Contents/Info.plist" <<'EOF'
 <dict>
     <key>CFBundleIdentifier</key>
     <string>com.example.fakecodex</string>
+</dict>
+</plist>
+EOF
+
+cat > "$phpstorm_app/Contents/Info.plist" <<'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleIdentifier</key>
+    <string>com.jetbrains.PhpStorm</string>
 </dict>
 </plist>
 EOF
@@ -79,9 +92,37 @@ printf '%s' "$remove_output" | grep -q "fake_term" || fail "interactive remove s
 status_final=$(HOME="$HOME" "$ROOT_DIR/bin/code-notify" click-through status 2>&1 || true)
 printf '%s' "$status_final" | grep -q "No click-through mappings found" || fail "status should return to the empty-state message after removal"
 
-printf 'fake_term\n' | HOME="$HOME" "$ROOT_DIR/bin/code-notify" click-through add "$fake_app" >/dev/null 2>&1
+: > "$notification_log"
+cat > "$config_file" <<'EOF'
+# Code-Notify click-through configuration
+# Maps TERM_PROGRAM values to macOS bundle IDs
+
+jb_jediterm=com.jetbrains.PhpStorm
+EOF
+
+PATH="$fake_bin:/usr/bin:/bin:/usr/sbin:/sbin" \
+HOME="$HOME" \
+TERM_PROGRAM="" \
+CODE_NOTIFY_CLICK_THROUGH_APP_PATH="$phpstorm_app" \
+bash "$NOTIFIER" test >/dev/null 2>&1
+
+grep -q -- "-activate com.jetbrains.PhpStorm" "$notification_log" || fail "empty TERM_PROGRAM should still honor configured embedded-terminal mappings"
+
+rm -f "$config_file"
+jetbrains_add_output=$(
+    printf '\n' | \
+    HOME="$HOME" \
+    TERM_PROGRAM="JetBrains-JediTerm" \
+    "$ROOT_DIR/bin/code-notify" click-through add FakeCodex 2>&1
+)
+printf '%s' "$jetbrains_add_output" | grep -q "Saved: TERM_PROGRAM=JetBrains-JediTerm" || fail "add should prefer the live TERM_PROGRAM over a guessed app key"
+grep -q '^JetBrains-JediTerm=com.example.fakecodex$' "$config_file" || fail "named add should persist the live TERM_PROGRAM value"
+if grep -q '^fakecodex=' "$config_file"; then
+    fail "named add should not persist a guessed app key when TERM_PROGRAM is available"
+fi
+
 cancel_output=$(printf 'q' | HOME="$HOME" "$ROOT_DIR/bin/code-notify" click-through remove 2>&1 || true)
 printf '%s' "$cancel_output" | grep -q "Cancelled" || fail "interactive remove should allow quitting without changes"
-grep -q '^fake_term=com.example.fakecodex$' "$config_file" || fail "quit should leave the existing mapping intact"
+grep -q '^JetBrains-JediTerm=com.example.fakecodex$' "$config_file" || fail "quit should leave the existing mapping intact"
 
-pass "click-through commands manage mappings, interactive removal, and notifier activation"
+pass "click-through commands manage mappings, reviewer edge cases, interactive removal, and notifier activation"

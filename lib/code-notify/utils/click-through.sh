@@ -3,85 +3,14 @@
 # Click-through configuration for macOS notifications.
 # Maps TERM_PROGRAM values to bundle IDs used by terminal-notifier -activate.
 
-CLICK_THROUGH_CONFIG="${CODE_NOTIFY_HOME:-$HOME/.code-notify}/click-through.conf"
-
-click_through_guess_term_program() {
-    case "$1" in
-        com.mitchellh.ghostty) echo "ghostty" ;;
-        com.googlecode.iterm2) echo "iTerm.app" ;;
-        com.apple.Terminal) echo "Apple_Terminal" ;;
-        com.microsoft.VSCode|com.microsoft.VSCodeInsiders|com.vscodium) echo "vscode" ;;
-        com.todesktop.230313mzl4w4u92) echo "cursor" ;;
-        dev.zed.Zed) echo "zed" ;;
-        com.github.wez.wezterm) echo "WezTerm" ;;
-        org.alacritty) echo "Alacritty" ;;
-        co.zeit.hyper) echo "Hyper" ;;
-        dev.warp.Warp-Stable) echo "WarpTerminal" ;;
-        net.kovidgoyal.kitty) echo "kitty" ;;
-        com.apple.dt.Xcode) echo "Xcode" ;;
-        *)
-            local fallback="${2:-app}"
-            printf '%s\n' "$fallback" | tr '[:upper:]' '[:lower:]' | tr ' ' '_' | tr -cd '[:alnum:]_.-'
-            ;;
-    esac
-}
-
-click_through_get_bundle_id() {
-    local app_path="$1"
-    /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$app_path/Contents/Info.plist" 2>/dev/null
-}
-
-click_through_each_entry() {
-    [[ -f "$CLICK_THROUGH_CONFIG" ]] || return 0
-
-    local line key value
-    while IFS= read -r line; do
-        [[ -z "$line" ]] && continue
-        [[ "$line" == \#* ]] && continue
-        key="${line%%=*}"
-        value="${line#*=}"
-        [[ -z "$key" ]] && continue
-        printf '%s=%s\n' "$key" "$value"
-    done < "$CLICK_THROUGH_CONFIG"
-}
+CLICK_THROUGH_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$CLICK_THROUGH_DIR/click-through-common.sh"
 
 click_through_has_entries() {
     local line
     while IFS= read -r line; do
         [[ -n "$line" ]] && return 0
     done < <(click_through_each_entry)
-    return 1
-}
-
-click_through_lookup_bundle_id() {
-    local term_prog="$1"
-    local line key value
-
-    while IFS= read -r line; do
-        key="${line%%=*}"
-        value="${line#*=}"
-        if [[ "$key" == "$term_prog" ]]; then
-            printf '%s\n' "$value"
-            return 0
-        fi
-    done < <(click_through_each_entry)
-
-    return 1
-}
-
-click_through_lookup_term_program_by_bundle_id() {
-    local bundle_id="$1"
-    local line key value
-
-    while IFS= read -r line; do
-        key="${line%%=*}"
-        value="${line#*=}"
-        if [[ "$value" == "$bundle_id" ]]; then
-            printf '%s\n' "$key"
-            return 0
-        fi
-    done < <(click_through_each_entry)
-
     return 1
 }
 
@@ -143,33 +72,6 @@ remove_click_through_entry() {
 
     click_through_write_entries "$entries"
     return 0
-}
-
-detect_parent_app_path() {
-    local pid=$$
-    local parent command app_path
-
-    if [[ -n "${CODE_NOTIFY_CLICK_THROUGH_APP_PATH:-}" ]] && [[ -d "${CODE_NOTIFY_CLICK_THROUGH_APP_PATH}" ]]; then
-        printf '%s\n' "${CODE_NOTIFY_CLICK_THROUGH_APP_PATH}"
-        return 0
-    fi
-
-    while [[ "$pid" -gt 1 ]]; do
-        parent=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')
-        [[ -n "$parent" ]] || return 1
-        pid="$parent"
-        command=$(ps -o command= -p "$pid" 2>/dev/null || true)
-
-        if [[ "$command" == *".app/Contents/MacOS/"* ]]; then
-            app_path="${command%%.app/Contents/MacOS/*}.app"
-            if [[ "$app_path" != *"/Contents/Frameworks/"* ]] && [[ -d "$app_path" ]]; then
-                printf '%s\n' "$app_path"
-                return 0
-            fi
-        fi
-    done
-
-    return 1
 }
 
 collect_click_through_search_results() {
@@ -284,7 +186,7 @@ run_click_through_add() {
     header "  Add Click-Through App"
 
     if [[ -z "$query" ]]; then
-        app_path=$(detect_parent_app_path 2>/dev/null || true)
+        app_path=$(click_through_detect_parent_app_path 2>/dev/null || true)
         if [[ -n "$app_path" ]]; then
             query="$app_path"
             auto_detected=1
@@ -305,23 +207,20 @@ run_click_through_add() {
     [[ -n "$bundle_id" ]] || { error "Could not read bundle ID from: $app_path"; return 1; }
 
     app_name=$(basename "$app_path" .app)
-    if [[ -n "${TERM_PROGRAM:-}" ]] && [[ "$query" == "$app_path" ]]; then
-        default_term="${TERM_PROGRAM}"
-    else
-        default_term=$(click_through_guess_term_program "$bundle_id" "$app_name")
-    fi
+    default_term=$(click_through_get_preferred_term_program "$bundle_id" "$app_name")
 
-    if [[ "$auto_detected" -eq 1 ]] && [[ -n "${TERM_PROGRAM:-}" ]]; then
-        existing_bundle=$(click_through_lookup_bundle_id "${TERM_PROGRAM}" || true)
+    term_prog=$(click_through_get_runtime_term_program || true)
+    if [[ "$auto_detected" -eq 1 ]] && [[ -n "$term_prog" ]]; then
+        existing_bundle=$(click_through_lookup_bundle_id "$term_prog" || true)
         if [[ "$existing_bundle" == "$bundle_id" ]]; then
             echo ""
-            info "Mapping already exists: ${BOLD}${TERM_PROGRAM}${RESET} -> ${DIM}${bundle_id}${RESET}"
+            info "Mapping already exists: ${BOLD}${term_prog}${RESET} -> ${DIM}${bundle_id}${RESET}"
             dim "  Run ${BOLD}cn click-through remove${RESET} to delete it."
             return 0
         fi
     fi
 
-    if [[ "$auto_detected" -eq 1 ]] && [[ -z "${TERM_PROGRAM:-}" ]]; then
+    if [[ "$auto_detected" -eq 1 ]] && [[ -z "$term_prog" ]]; then
         existing_term=$(click_through_lookup_term_program_by_bundle_id "$bundle_id" || true)
         if [[ -n "$existing_term" ]]; then
             echo ""

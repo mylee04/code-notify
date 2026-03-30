@@ -15,6 +15,7 @@ NOTIFIER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$NOTIFIER_DIR/../utils/detect.sh"
 source "$NOTIFIER_DIR/../utils/voice.sh"
 source "$NOTIFIER_DIR/../utils/sound.sh"
+source "$NOTIFIER_DIR/../utils/click-through-common.sh"
 
 has_jq() {
     command -v jq >/dev/null 2>&1
@@ -328,45 +329,24 @@ fi
 
 # Get terminal bundle ID for macOS activation
 get_terminal_bundle_id() {
-    local term_prog="${TERM_PROGRAM:-}"
-    local config_file="${CODE_NOTIFY_HOME:-$HOME/.code-notify}/click-through.conf"
-    local line key value
+    local term_prog bundle_id
 
-    if [[ -n "$term_prog" ]] && [[ -f "$config_file" ]]; then
-        while IFS= read -r line; do
-            [[ -z "$line" ]] && continue
-            [[ "$line" == \#* ]] && continue
-            key="${line%%=*}"
-            value="${line#*=}"
-            if [[ "$key" == "$term_prog" ]]; then
-                printf '%s\n' "$value"
-                return
-            fi
-        done < "$config_file"
+    bundle_id=$(click_through_lookup_bundle_id_for_current_context || true)
+    if [[ -n "$bundle_id" ]]; then
+        printf '%s\n' "$bundle_id"
+        return
     fi
 
-    case "$term_prog" in
-        "ghostty") echo "com.mitchellh.ghostty" ;;
-        "iTerm.app") echo "com.googlecode.iterm2" ;;
-        "Apple_Terminal") echo "com.apple.Terminal" ;;
-        "vscode") echo "com.microsoft.VSCode" ;;
-        "cursor") echo "com.todesktop.230313mzl4w4u92" ;;
-        "zed") echo "dev.zed.Zed" ;;
-        "WezTerm") echo "com.github.wez.wezterm" ;;
-        "Alacritty") echo "org.alacritty" ;;
-        "Hyper") echo "co.zeit.hyper" ;;
-        *)
-            if [[ -n "${GHOSTTY_RESOURCES_DIR:-}" ]]; then
-                echo "com.mitchellh.ghostty"
-            elif [[ -n "${ITERM_SESSION_ID:-}" ]]; then
-                echo "com.googlecode.iterm2"
-            elif [[ -n "${WEZTERM_PANE:-}" ]]; then
-                echo "com.github.wez.wezterm"
-            else
-                echo "com.apple.Terminal"
-            fi
-            ;;
-    esac
+    term_prog=$(click_through_get_runtime_term_program || true)
+    if [[ -n "$term_prog" ]]; then
+        bundle_id=$(click_through_get_builtin_bundle_id_for_term_program "$term_prog" || true)
+        if [[ -n "$bundle_id" ]]; then
+            printf '%s\n' "$bundle_id"
+            return
+        fi
+    fi
+
+    click_through_get_fallback_bundle_id
 }
 
 # Function to send notification on macOS
