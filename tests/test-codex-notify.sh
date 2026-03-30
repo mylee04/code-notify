@@ -27,9 +27,62 @@ run_codex_notifier() {
     local payload="$2"
 
     PATH="$fake_path" \
+    CODE_NOTIFY_STOP_RATE_LIMIT_SECONDS=0 \
     CODE_NOTIFY_NOTIFICATION_RATE_LIMIT_SECONDS=180 \
-    CODE_NOTIFY_SKIP_CODEX_DESKTOP_CHECK=1 \
     bash "$NOTIFIER" codex "$payload"
+}
+
+write_codex_thread_metadata() {
+    local thread_id="$1"
+    local originator="$2"
+    local source="${3:-vscode}"
+
+    python3 - "$HOME/.codex/state_5.sqlite" "$HOME/.codex/sessions" "$thread_id" "$originator" "$source" <<'PY'
+import json
+import pathlib
+import sqlite3
+import sys
+
+db_path = pathlib.Path(sys.argv[1])
+sessions_dir = pathlib.Path(sys.argv[2])
+thread_id = sys.argv[3]
+originator = sys.argv[4]
+source = sys.argv[5]
+
+rollout_path = sessions_dir / f"{thread_id}.jsonl"
+rollout_path.parent.mkdir(parents=True, exist_ok=True)
+rollout_path.write_text(
+    json.dumps(
+        {
+            "type": "session_meta",
+            "payload": {
+                "id": thread_id,
+                "originator": originator,
+                "source": source,
+            },
+        }
+    )
+    + "\n",
+    encoding="utf-8",
+)
+
+with sqlite3.connect(db_path) as conn:
+    cur = conn.cursor()
+    cur.execute(
+        """
+        create table if not exists threads (
+            id text primary key,
+            source text,
+            rollout_path text
+        )
+        """
+    )
+    cur.execute(
+        "insert or replace into threads (id, source, rollout_path) values (?, ?, ?)",
+        (thread_id, source, str(rollout_path)),
+    )
+    conn.commit()
+PY
 }
 
 test_dir="$(mktemp -d)"
@@ -39,7 +92,7 @@ export HOME="$test_dir/home"
 fake_bin="$test_dir/bin"
 log_dir="$test_dir/log"
 sound_file="$test_dir/custom.aiff"
-mkdir -p "$HOME/.claude/notifications" "$HOME/.claude/logs" "$fake_bin" "$log_dir"
+mkdir -p "$HOME/.claude/notifications" "$HOME/.claude/logs" "$HOME/.codex" "$fake_bin" "$log_dir"
 
 touch "$sound_file"
 : > "$HOME/.claude/notifications/sound-enabled"
@@ -82,12 +135,22 @@ fake_path="$fake_bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
 run_codex_notifier "$fake_path" '{"type":"agent-turn-complete","cwd":"/tmp/demo","client":"codex-exec","input-messages":["Run tests"],"last-assistant-message":"All tests passed"}'
 run_codex_notifier "$fake_path" '{"type":"request_permissions","cwd":"/tmp/demo","tool":"exec_command"}'
+run_codex_notifier "$fake_path" '{"type":"agent-turn-complete","cwd":"/tmp/demo","client":"codex-app","last-assistant-message":"Desktop event"}'
 
-wait_for_lines "$notification_log" 2 || fail "expected two Codex notification deliveries"
-wait_for_lines "$sound_log" 2 || fail "expected two Codex sound playbacks"
-wait_for_lines "$HOME/.claude/logs/notifications.log" 2 || fail "expected two Codex notification log entries"
+write_codex_thread_metadata "desktop-thread" "Codex Desktop"
+run_codex_notifier "$fake_path" '{"type":"agent-turn-complete","thread-id":"desktop-thread","cwd":"/tmp/demo","client":"codex-exec","last-assistant-message":"Desktop-backed event"}'
+
+write_codex_thread_metadata "cli-thread" "Codex CLI" "shell"
+run_codex_notifier "$fake_path" '{"type":"agent-turn-complete","thread-id":"cli-thread","cwd":"/tmp/demo","client":"codex-exec","last-assistant-message":"CLI event still notifies"}'
+
+wait_for_lines "$notification_log" 3 || fail "expected three Codex notification deliveries"
+wait_for_lines "$sound_log" 3 || fail "expected three Codex sound playbacks"
+wait_for_lines "$HOME/.claude/logs/notifications.log" 3 || fail "expected three Codex notification log entries"
 
 grep -q "Task Complete - demo" "$notification_log" || fail "Codex completion payload did not map to a stop notification"
 grep -q "Input Required - demo" "$notification_log" || fail "Codex permission-like payload did not map to an input-required notification"
+[[ $(wc -l < "$notification_log") -eq 3 ]] || fail "desktop-origin Codex events were not suppressed correctly"
+[[ $(wc -l < "$sound_log") -eq 3 ]] || fail "desktop-origin Codex sound playback was not suppressed correctly"
+[[ $(wc -l < "$HOME/.claude/logs/notifications.log") -eq 3 ]] || fail "desktop-origin Codex log entries were not suppressed correctly"
 
-pass "Codex payload parsing maps completion and permission-like payloads to the expected notification types"
+pass "Codex notifies for CLI sessions while suppressing desktop-origin duplicate events"

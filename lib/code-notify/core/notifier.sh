@@ -217,23 +217,90 @@ is_project_scoped_notification() {
     return 1
 }
 
-# Detect if the tool's desktop app (GUI) is running (macOS only).
-# Desktop apps that wrap the CLI (e.g. Codex app) send their own notifications,
-# so code-notify should suppress to avoid duplicates.
+# Find the newest Codex state database without hard-coding a schema version suffix.
+get_latest_codex_state_db() {
+    local latest=""
+    local candidate
+
+    for candidate in "$HOME/.codex"/state*.sqlite; do
+        [[ -e "$candidate" ]] || continue
+        if [[ -z "$latest" ]] || [[ "$candidate" -nt "$latest" ]]; then
+            latest="$candidate"
+        fi
+    done
+
+    [[ -n "$latest" ]] || return 1
+    printf '%s\n' "$latest"
+}
+
+# Resolve the thread originator from Codex local state when the notify payload includes thread-id.
+get_codex_thread_originator() {
+    local thread_id="$1"
+    local state_db
+
+    [[ -n "$thread_id" ]] || return 1
+    has_python3 || return 1
+
+    state_db=$(get_latest_codex_state_db) || return 1
+
+    python3 - "$state_db" "$thread_id" <<'PY' 2>/dev/null
+import json
+import pathlib
+import sqlite3
+import sys
+
+db_path = pathlib.Path(sys.argv[1])
+thread_id = sys.argv[2]
+
+try:
+    with sqlite3.connect(db_path) as conn:
+        cur = conn.cursor()
+        cur.execute("select rollout_path from threads where id = ?", (thread_id,))
+        row = cur.fetchone()
+except Exception:
+    row = None
+
+if not row or not row[0]:
+    raise SystemExit(0)
+
+try:
+    first_line = pathlib.Path(row[0]).read_text(encoding="utf-8", errors="ignore").splitlines()[0]
+    payload = json.loads(first_line).get("payload", {})
+    originator = payload.get("originator", "")
+except Exception:
+    originator = ""
+
+if isinstance(originator, str):
+    print(originator, end="")
+PY
+}
+
+# Suppress only when this Codex event came from the desktop app itself.
 # Set CODE_NOTIFY_SKIP_CODEX_DESKTOP_CHECK=1 to disable (used in tests).
-has_desktop_app_running() {
-    [[ "$(uname -s)" != "Darwin" ]] && return 1
+is_codex_desktop_trigger() {
+    [[ "$TOOL_NAME" != "codex" ]] && return 1
     [[ "${CODE_NOTIFY_SKIP_CODEX_DESKTOP_CHECK:-}" == "1" ]] && return 1
 
-    local tool="$1"
-    case "$tool" in
-        "codex")
-            pgrep -f "[Cc]odex\.app" > /dev/null 2>&1
-            ;;
-        *)
-            return 1
+    local client
+    client=$(json_extract_string "$HOOK_DATA" "client" | tr '[:upper:]' '[:lower:]')
+    case "$client" in
+        *app*|appserver)
+            return 0
             ;;
     esac
+
+    local thread_id originator
+    thread_id=$(json_extract_string "$HOOK_DATA" "thread-id")
+    [[ -n "$thread_id" ]] || return 1
+
+    originator=$(get_codex_thread_originator "$thread_id")
+    case "$originator" in
+        "Codex Desktop")
+            return 0
+            ;;
+    esac
+
+    return 1
 }
 
 # Function to check if notification should be suppressed
@@ -248,8 +315,8 @@ should_suppress_notification() {
         return 1
     fi
 
-    # Suppress when the tool's desktop app (GUI) is running — it sends its own notifications
-    if has_desktop_app_running "$TOOL_NAME"; then
+    # Suppress only when this Codex event originated from the desktop app.
+    if is_codex_desktop_trigger; then
         return 0
     fi
 
