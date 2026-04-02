@@ -133,7 +133,8 @@ get_tool_display_name() {
 TOOL_DISPLAY=$(get_tool_display_name "$TOOL_NAME")
 
 # Rate limiting for stop notifications (prevents spam from parallel sub-agents)
-RATE_LIMIT_DIR="$HOME/.claude/notifications"
+NOTIFICATIONS_DIR="$HOME/.claude/notifications"
+RATE_LIMIT_DIR="$NOTIFICATIONS_DIR/state"
 STOP_RATE_LIMIT_SECONDS="${CODE_NOTIFY_STOP_RATE_LIMIT_SECONDS:-10}"
 NOTIFICATION_RATE_LIMIT_SECONDS="${CODE_NOTIFY_NOTIFICATION_RATE_LIMIT_SECONDS:-180}"
 
@@ -145,6 +146,12 @@ get_rate_limit_file() {
     local key
     key=$(sanitize_rate_limit_key "$1")
     printf '%s/%s\n' "$RATE_LIMIT_DIR" "$key"
+}
+
+get_legacy_rate_limit_file() {
+    local key
+    key=$(sanitize_rate_limit_key "$1")
+    printf '%s/%s\n' "$NOTIFICATIONS_DIR" "$key"
 }
 
 get_notification_subtype() {
@@ -180,8 +187,13 @@ get_notification_rate_limit_key() {
 is_rate_limited() {
     local rate_limit_key="$1"
     local rate_limit_seconds="$2"
-    local lock_file
+    local lock_file legacy_lock_file
     lock_file=$(get_rate_limit_file "$rate_limit_key")
+    legacy_lock_file=$(get_legacy_rate_limit_file "$rate_limit_key")
+
+    if [[ ! -f "$lock_file" ]] && [[ -f "$legacy_lock_file" ]]; then
+        lock_file="$legacy_lock_file"
+    fi
 
     if [[ ! -f "$lock_file" ]]; then
         return 1  # No previous notification, not rate limited
@@ -202,10 +214,14 @@ is_rate_limited() {
 
 update_rate_limit() {
     local rate_limit_key="$1"
-    local lock_file
+    local lock_file legacy_lock_file
     lock_file=$(get_rate_limit_file "$rate_limit_key")
+    legacy_lock_file=$(get_legacy_rate_limit_file "$rate_limit_key")
     mkdir -p "$RATE_LIMIT_DIR"
     date +%s > "$lock_file"
+    if [[ "$legacy_lock_file" != "$lock_file" ]]; then
+        rm -f "$legacy_lock_file"
+    fi
 }
 
 is_project_scoped_notification() {

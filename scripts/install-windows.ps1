@@ -20,7 +20,7 @@ param(
 $ErrorActionPreference = "Stop"
 
 # Version
-$VERSION = "1.7.0"
+$VERSION = "1.7.1"
 
 # Colors and formatting
 function Write-Success { param([string]$Message) Write-Host "[OK] $Message" -ForegroundColor Green }
@@ -33,6 +33,7 @@ function Write-Header { param([string]$Message) Write-Host "`n$Message" -Foregro
 $ClaudeHome = "$env:USERPROFILE\.claude"
 $InstallDir = "$env:USERPROFILE\.code-notify"
 $NotificationsDir = "$ClaudeHome\notifications"
+$NotificationStateDir = "$NotificationsDir\state"
 $LogsDir = "$ClaudeHome\logs"
 
 function Show-Banner {
@@ -93,7 +94,7 @@ function Install-ClaudeNotify {
     Write-Header "Installing Code-Notify..."
 
     # Create directories
-    $directories = @($InstallDir, "$InstallDir\bin", "$InstallDir\lib", $NotificationsDir, $LogsDir)
+    $directories = @($InstallDir, "$InstallDir\bin", "$InstallDir\lib", $NotificationsDir, $NotificationStateDir, $LogsDir)
     foreach ($dir in $directories) {
         if (-not (Test-Path $dir)) {
             New-Item -ItemType Directory -Path $dir -Force | Out-Null
@@ -106,7 +107,7 @@ function Install-ClaudeNotify {
 # Code-Notify PowerShell Module
 # https://github.com/mylee04/code-notify
 
-$script:VERSION = "1.7.0"
+$script:VERSION = "1.7.1"
 $script:ClaudeHome = if ($env:CLAUDE_HOME) { $env:CLAUDE_HOME } else { "$env:USERPROFILE\.claude" }
 $script:DefaultSettingsFile = "$script:ClaudeHome\settings.json"
 $script:AlternateSettingsFile = "$env:USERPROFILE\.config\.claude\settings.json"
@@ -1531,7 +1532,7 @@ function Get-ToolDisplayName {
 
 $ToolDisplay = Get-ToolDisplayName $ToolName
 
-$NotificationStateDir = "$ClaudeHome\notifications"
+$NotificationStateDir = "$ClaudeHome\notifications\state"
 
 try {
     $StopRateLimitSeconds = [int]($env:CODE_NOTIFY_STOP_RATE_LIMIT_SECONDS)
@@ -1597,6 +1598,13 @@ function Get-RateLimitPath {
     return Join-Path $NotificationStateDir $safeKey
 }
 
+function Get-LegacyRateLimitPath {
+    param([string]$Key)
+
+    $safeKey = ($Key -replace '[^A-Za-z0-9._-]', '_')
+    return Join-Path "$ClaudeHome\notifications" $safeKey
+}
+
 function Test-RateLimited {
     param(
         [string]$Key,
@@ -1608,6 +1616,13 @@ function Test-RateLimited {
     }
 
     $path = Get-RateLimitPath $Key
+    if (-not (Test-Path $path)) {
+        $legacyPath = Get-LegacyRateLimitPath $Key
+        if (Test-Path $legacyPath) {
+            $path = $legacyPath
+        }
+    }
+
     if (-not (Test-Path $path)) {
         return $false
     }
@@ -1630,7 +1645,13 @@ function Update-RateLimit {
     }
 
     $currentTime = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
-    $currentTime | Set-Content (Get-RateLimitPath $Key) -Encoding ASCII
+    $path = Get-RateLimitPath $Key
+    $currentTime | Set-Content $path -Encoding ASCII
+
+    $legacyPath = Get-LegacyRateLimitPath $Key
+    if ($legacyPath -ne $path -and (Test-Path $legacyPath)) {
+        Remove-Item $legacyPath -Force -ErrorAction SilentlyContinue
+    }
 }
 
 # Function to check if notification should be suppressed

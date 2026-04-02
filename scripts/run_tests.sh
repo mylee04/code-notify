@@ -198,6 +198,22 @@ else
     test_fail "click-through commands failed"
 fi
 
+# Test 20: rate-limit state files live under notifications/state with legacy fallback
+test_start "notification state dir"
+if bash tests/test-notification-state-dir.sh >/dev/null 2>&1; then
+    test_pass
+else
+    test_fail "notification state dir failed"
+fi
+
+# Test 21: Windows notifier keeps rate-limit state under notifications/state
+test_start "windows rate-limit state"
+if bash tests/test-windows-rate-limit-state.sh >/dev/null 2>&1; then
+    test_pass
+else
+    test_fail "windows rate-limit state failed"
+fi
+
 # Summary
 echo ""
 echo "Test Summary:"
