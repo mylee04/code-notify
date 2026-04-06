@@ -20,7 +20,7 @@ param(
 $ErrorActionPreference = "Stop"
 
 # Version
-$VERSION = "1.7.2"
+$VERSION = "1.7.3"
 
 # Colors and formatting
 function Write-Success { param([string]$Message) Write-Host "[OK] $Message" -ForegroundColor Green }
@@ -107,7 +107,7 @@ function Install-ClaudeNotify {
 # Code-Notify PowerShell Module
 # https://github.com/mylee04/code-notify
 
-$script:VERSION = "1.7.2"
+$script:VERSION = "1.7.3"
 $script:ClaudeHome = if ($env:CLAUDE_HOME) { $env:CLAUDE_HOME } else { "$env:USERPROFILE\.claude" }
 $script:DefaultSettingsFile = "$script:ClaudeHome\settings.json"
 $script:AlternateSettingsFile = "$env:USERPROFILE\.config\.claude\settings.json"
@@ -534,6 +534,223 @@ function Get-NotifyScript {
     return "$script:NotificationsDir\notify.ps1"
 }
 
+function Get-ClaudeNotifyCommand {
+    param([string]$NotifyScript)
+    return "powershell -ExecutionPolicy Bypass -File `"$NotifyScript`" notification claude"
+}
+
+function Get-ClaudeStopCommand {
+    param([string]$NotifyScript)
+    return "powershell -ExecutionPolicy Bypass -File `"$NotifyScript`" stop claude"
+}
+
+function Get-ManagedClaudeNotificationPattern {
+    return '(claude-notify|code-notify.*notifier\.sh|(?:^|[\\/])notify\.(?:ps1|sh)).*(notification|PreToolUse)(?:\s|$)'
+}
+
+function Get-ManagedClaudeStopPattern {
+    return '(claude-notify|code-notify.*notifier\.sh|(?:^|[\\/])notify\.(?:ps1|sh)).*stop(?:\s|$)'
+}
+
+function Test-HookEntriesContainCommand {
+    param(
+        [object[]]$Entries,
+        [string]$Matcher,
+        [string]$Command
+    )
+
+    foreach ($entry in @($Entries)) {
+        if ($null -eq $entry) {
+            continue
+        }
+
+        $entryMatcher = ""
+        if ($null -ne $entry.PSObject.Properties['matcher']) {
+            $entryMatcher = [string]$entry.matcher
+        }
+        if ($entryMatcher -ne $Matcher) {
+            continue
+        }
+
+        foreach ($hook in @($entry.hooks)) {
+            if ($null -eq $hook) {
+                continue
+            }
+            if ($null -eq $hook.PSObject.Properties['type'] -or $hook.type -ne "command") {
+                continue
+            }
+            if ($null -ne $hook.PSObject.Properties['command'] -and [string]$hook.command -eq $Command) {
+                return $true
+            }
+        }
+    }
+
+    return $false
+}
+
+function Test-ManagedClaudeHookCommand {
+    param(
+        [object]$Hook,
+        [string]$ExactCommand,
+        [string]$Pattern
+    )
+
+    if ($null -eq $Hook) {
+        return $false
+    }
+    if ($null -eq $Hook.PSObject.Properties['type'] -or $Hook.type -ne "command") {
+        return $false
+    }
+    if ($null -eq $Hook.PSObject.Properties['command']) {
+        return $false
+    }
+
+    $command = [string]$Hook.command
+    if ($command -eq $ExactCommand) {
+        return $true
+    }
+
+    return ($command -match $Pattern)
+}
+
+function Remove-ManagedClaudeHookEntries {
+    param(
+        [object[]]$Entries,
+        [string]$ExactCommand,
+        [string]$Pattern
+    )
+
+    $result = @()
+
+    foreach ($entry in @($Entries)) {
+        if ($null -eq $entry) {
+            continue
+        }
+
+        if ($null -eq $entry.PSObject.Properties['hooks']) {
+            $result += $entry
+            continue
+        }
+
+        $filteredHooks = @()
+        foreach ($hook in @($entry.hooks)) {
+            if (-not (Test-ManagedClaudeHookCommand -Hook $hook -ExactCommand $ExactCommand -Pattern $Pattern)) {
+                $filteredHooks += $hook
+            }
+        }
+
+        if ($filteredHooks.Count -eq 0) {
+            continue
+        }
+
+        $entryClone = [ordered]@{}
+        foreach ($prop in $entry.PSObject.Properties) {
+            if ($prop.Name -eq "hooks") {
+                $entryClone["hooks"] = $filteredHooks
+            } else {
+                $entryClone[$prop.Name] = $prop.Value
+            }
+        }
+        if (-not $entryClone.Contains("hooks")) {
+            $entryClone["hooks"] = $filteredHooks
+        }
+
+        $result += [PSCustomObject]$entryClone
+    }
+
+    return ,$result
+}
+
+function Update-ClaudeSettingsHooks {
+    param(
+        [object]$Settings,
+        [string]$NotifyScript,
+        [switch]$Disable
+    )
+
+    if (-not $Settings) {
+        $Settings = [PSCustomObject]@{}
+    }
+
+    if ($null -eq $Settings.PSObject.Properties['hooks'] -or $null -eq $Settings.hooks) {
+        $Settings | Add-Member -Force -NotePropertyName hooks -NotePropertyValue ([PSCustomObject]@{})
+    } elseif ($Settings.hooks -isnot [pscustomobject] -and $Settings.hooks -isnot [hashtable]) {
+        $Settings.PSObject.Properties.Remove("hooks")
+        $Settings | Add-Member -Force -NotePropertyName hooks -NotePropertyValue ([PSCustomObject]@{})
+    }
+
+    $notifyCommand = Get-ClaudeNotifyCommand -NotifyScript $NotifyScript
+    $stopCommand = Get-ClaudeStopCommand -NotifyScript $NotifyScript
+    $notificationPattern = Get-ManagedClaudeNotificationPattern
+    $stopPattern = Get-ManagedClaudeStopPattern
+
+    $notificationEntries = Remove-ManagedClaudeHookEntries -Entries @($Settings.hooks.Notification) -ExactCommand $notifyCommand -Pattern $notificationPattern
+    $stopEntries = Remove-ManagedClaudeHookEntries -Entries @($Settings.hooks.Stop) -ExactCommand $stopCommand -Pattern $stopPattern
+
+    if (-not $Disable) {
+        $notificationEntries += [PSCustomObject]@{
+            matcher = "idle_prompt"
+            hooks = @(
+                [PSCustomObject]@{
+                    type = "command"
+                    command = $notifyCommand
+                }
+            )
+        }
+        $stopEntries += [PSCustomObject]@{
+            matcher = ""
+            hooks = @(
+                [PSCustomObject]@{
+                    type = "command"
+                    command = $stopCommand
+                }
+            )
+        }
+    }
+
+    if ($notificationEntries.Count -gt 0) {
+        $Settings.hooks | Add-Member -Force -NotePropertyName Notification -NotePropertyValue $notificationEntries
+    } else {
+        $Settings.hooks.PSObject.Properties.Remove("Notification")
+    }
+
+    if ($stopEntries.Count -gt 0) {
+        $Settings.hooks | Add-Member -Force -NotePropertyName Stop -NotePropertyValue $stopEntries
+    } else {
+        $Settings.hooks.PSObject.Properties.Remove("Stop")
+    }
+
+    if ($Settings.hooks.PSObject.Properties.Count -eq 0) {
+        $Settings.PSObject.Properties.Remove("hooks")
+    }
+
+    return $Settings
+}
+
+function Test-ClaudeSettingsCurrentHooks {
+    param(
+        [string]$SettingsFile,
+        [string]$NotifyScript
+    )
+
+    if (-not (Test-Path $SettingsFile)) {
+        return $false
+    }
+
+    $settings = Get-Content $SettingsFile -Raw | ConvertFrom-Json -ErrorAction SilentlyContinue
+    if (-not $settings -or -not $settings.hooks) {
+        return $false
+    }
+
+    $notifyCommand = Get-ClaudeNotifyCommand -NotifyScript $NotifyScript
+    $stopCommand = Get-ClaudeStopCommand -NotifyScript $NotifyScript
+
+    return (
+        (Test-HookEntriesContainCommand -Entries @($settings.hooks.Notification) -Matcher "idle_prompt" -Command $notifyCommand) -and
+        (Test-HookEntriesContainCommand -Entries @($settings.hooks.Stop) -Matcher "" -Command $stopCommand)
+    )
+}
+
 function Test-NotificationsEnabled {
     param(
         [string]$Tool = "claude",
@@ -568,8 +785,7 @@ function Test-NotificationsEnabled {
                 return $false
             }
 
-            $settings = Get-Content $settingsFile -Raw | ConvertFrom-Json -ErrorAction SilentlyContinue
-            return ($null -ne $settings.hooks)
+            return Test-ClaudeSettingsCurrentHooks -SettingsFile $settingsFile -NotifyScript (Get-NotifyScript)
         }
     }
 }
@@ -709,43 +925,15 @@ function Enable-Notifications {
 
             Backup-ConfigFile $settingsFile
 
-            $settings = @{
-                hooks = @{
-                    Notification = @(
-                        @{
-                            matcher = "idle_prompt"
-                            hooks = @(
-                                @{
-                                    type = "command"
-                                    command = "powershell -ExecutionPolicy Bypass -File `"$notifyScript`" notification claude"
-                                }
-                            )
-                        }
-                    )
-                    Stop = @(
-                        @{
-                            matcher = ""
-                            hooks = @(
-                                @{
-                                    type = "command"
-                                    command = "powershell -ExecutionPolicy Bypass -File `"$notifyScript`" stop claude"
-                                }
-                            )
-                        }
-                    )
-                }
-            }
-
+            $settings = [PSCustomObject]@{}
             if (Test-Path $settingsFile) {
                 $existingSettings = Get-Content $settingsFile -Raw | ConvertFrom-Json -ErrorAction SilentlyContinue
                 if ($existingSettings) {
-                    $existingSettings.PSObject.Properties | ForEach-Object {
-                        if ($_.Name -ne "hooks") {
-                            $settings[$_.Name] = $_.Value
-                        }
-                    }
+                    $settings = $existingSettings
                 }
             }
+
+            $settings = Update-ClaudeSettingsHooks -Settings $settings -NotifyScript $notifyScript
 
             $parentDir = Split-Path $settingsFile -Parent
             if (-not (Test-Path $parentDir)) {
@@ -831,8 +1019,12 @@ function Disable-Notifications {
             Backup-ConfigFile $settingsFile
             $settings = Get-Content $settingsFile -Raw | ConvertFrom-Json -ErrorAction SilentlyContinue
             if ($settings -and $settings.hooks) {
-                $settings.PSObject.Properties.Remove("hooks")
-                $settings | ConvertTo-Json -Depth 10 | Set-Content $settingsFile -Encoding UTF8
+                $settings = Update-ClaudeSettingsHooks -Settings $settings -NotifyScript (Get-NotifyScript) -Disable
+                if ($settings.PSObject.Properties.Count -eq 0) {
+                    Remove-Item $settingsFile -Force -ErrorAction SilentlyContinue
+                } else {
+                    $settings | ConvertTo-Json -Depth 10 | Set-Content $settingsFile -Encoding UTF8
+                }
                 Write-Success "Notifications disabled!"
             } else {
                 Write-Warning "Notifications were not enabled"

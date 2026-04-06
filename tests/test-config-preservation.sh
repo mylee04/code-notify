@@ -354,6 +354,143 @@ run_test_failure_propagation() {
     return $?
 }
 
+run_test_claude_hook_detection_and_preservation() {
+    local tool="$1"  # "jq" or "python"
+    local test_dir
+    test_dir=$(mktemp -d)
+    trap "rm -rf $test_dir" RETURN
+
+    export HOME="$test_dir"
+    export CLAUDE_HOME="$test_dir/.claude"
+    mkdir -p "$CLAUDE_HOME"
+
+    (
+        source "$SCRIPT_DIR/../lib/code-notify/utils/colors.sh"
+        source "$SCRIPT_DIR/../lib/code-notify/utils/detect.sh"
+        source "$SCRIPT_DIR/../lib/code-notify/core/config.sh"
+        source "$SCRIPT_DIR/../lib/code-notify/commands/global.sh"
+
+        if [[ "$tool" == "python" ]]; then
+            has_jq() { return 1; }
+        fi
+
+        is_tool_installed() { return 0; }
+
+        cat > "$GLOBAL_SETTINGS_FILE" <<'EOF'
+{
+  "hooks": {
+    "Notification": [
+      {
+        "matcher": "custom_prompt",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo custom notification"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo pre"
+          }
+        ]
+      }
+    ]
+  },
+  "theme": "dark"
+}
+EOF
+
+        echo ""
+        echo "=== Testing Claude hook detection with $tool ==="
+
+        if is_enabled_globally; then
+            echo "❌ $tool: unrelated/custom hooks were incorrectly treated as code-notify hooks"
+            cat "$GLOBAL_SETTINGS_FILE"
+            exit 1
+        fi
+        echo "✅ $tool: unrelated/custom hooks do not count as enabled"
+
+        local output
+        output=$(enable_single_tool "claude" 2>&1) || {
+            echo "❌ $tool: enable_single_tool failed"
+            echo "$output"
+            exit 1
+        }
+
+        if echo "$output" | grep -q "already enabled"; then
+            echo "❌ $tool: enable_single_tool falsely skipped install"
+            echo "$output"
+            exit 1
+        fi
+
+        grep -q '"PreToolUse"' "$GLOBAL_SETTINGS_FILE" || {
+            echo "❌ $tool: PreToolUse hook was removed during enable"
+            cat "$GLOBAL_SETTINGS_FILE"
+            exit 1
+        }
+
+        grep -q '"command": "echo custom notification"' "$GLOBAL_SETTINGS_FILE" || {
+            echo "❌ $tool: custom Notification hook was removed during enable"
+            cat "$GLOBAL_SETTINGS_FILE"
+            exit 1
+        }
+
+        grep -q '"matcher": "idle_prompt"' "$GLOBAL_SETTINGS_FILE" || {
+            echo "❌ $tool: code-notify Notification hook was not added"
+            cat "$GLOBAL_SETTINGS_FILE"
+            exit 1
+        }
+
+        grep -qF "\"command\": \"$(get_global_claude_stop_command)\"" "$GLOBAL_SETTINGS_FILE" || {
+            echo "❌ $tool: code-notify Stop hook was not added"
+            cat "$GLOBAL_SETTINGS_FILE"
+            exit 1
+        }
+
+        echo "✅ $tool: enable preserves unrelated hooks and adds current Claude hooks"
+
+        output=$(disable_single_tool "claude" 2>&1) || {
+            echo "❌ $tool: disable_single_tool failed"
+            echo "$output"
+            exit 1
+        }
+
+        grep -q '"PreToolUse"' "$GLOBAL_SETTINGS_FILE" || {
+            echo "❌ $tool: PreToolUse hook was removed during disable"
+            cat "$GLOBAL_SETTINGS_FILE"
+            exit 1
+        }
+
+        grep -q '"command": "echo custom notification"' "$GLOBAL_SETTINGS_FILE" || {
+            echo "❌ $tool: custom Notification hook was removed during disable"
+            cat "$GLOBAL_SETTINGS_FILE"
+            exit 1
+        }
+
+        if grep -qF "\"command\": \"$(get_global_claude_notify_command)\"" "$GLOBAL_SETTINGS_FILE"; then
+            echo "❌ $tool: code-notify Notification hook was not removed during disable"
+            cat "$GLOBAL_SETTINGS_FILE"
+            exit 1
+        fi
+
+        if grep -qF "\"command\": \"$(get_global_claude_stop_command)\"" "$GLOBAL_SETTINGS_FILE"; then
+            echo "❌ $tool: code-notify Stop hook was not removed during disable"
+            cat "$GLOBAL_SETTINGS_FILE"
+            exit 1
+        fi
+
+        echo "✅ $tool: disable removes only managed Claude hooks"
+    )
+
+    return $?
+}
+
 # Test project hooks with special characters (injection vulnerability)
 run_test_project_hooks_special_chars() {
     local tool="$1"  # "jq" or "python"
@@ -837,6 +974,14 @@ run_test_codex_toml_placement || fail "Codex TOML placement test failed"
 
 # Test 9: Legacy claude-notify hook configs are repaired in place
 run_test_legacy_claude_hooks_repair || fail "Legacy Claude hook repair test failed"
+
+# Test 10: Claude detection only matches current hooks and preserves unrelated hook entries
+if command -v jq &> /dev/null; then
+    run_test_claude_hook_detection_and_preservation "jq" || fail "jq Claude hook detection tests failed"
+fi
+if command -v python3 &> /dev/null; then
+    run_test_claude_hook_detection_and_preservation "python" || fail "Python Claude hook detection tests failed"
+fi
 
 echo ""
 echo "============================================"

@@ -13,36 +13,6 @@ trap 'rm -rf "$test_dir"' EXIT
 export HOME="$test_dir/home"
 mkdir -p "$HOME/.claude" "$test_dir/project/.claude"
 
-cat > "$test_dir/project/.claude/settings.json" <<'EOF'
-{
-  "model": "sonnet",
-  "hooks": {
-    "Notification": [
-      {
-        "matcher": "idle_prompt",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "/tmp/notifier.sh notification claude demo-project"
-          }
-        ]
-      }
-    ],
-    "Stop": [
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "/tmp/notifier.sh stop claude demo-project"
-          }
-        ]
-      }
-    ]
-  }
-}
-EOF
-
 cat > "$test_dir/project/.claude/hooks.json" <<'EOF'
 {
   "hooks": {
@@ -59,6 +29,36 @@ EOF
     source "$SCRIPT_DIR/../lib/code-notify/utils/detect.sh"
     source "$SCRIPT_DIR/../lib/code-notify/core/config.sh"
     source "$SCRIPT_DIR/../lib/code-notify/commands/project.sh"
+
+    cat > "$test_dir/project/.claude/settings.json" <<EOF
+{
+  "model": "sonnet",
+  "hooks": {
+    "Notification": [
+      {
+        "matcher": "idle_prompt",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$(get_project_claude_notify_command "project")"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$(get_project_claude_stop_command "project")"
+          }
+        ]
+      }
+    ]
+  }
+}
+EOF
 
     status_output="$(show_project_status 2>&1)"
     echo "$status_output" | grep -q ".claude/settings.json" || fail "project status should report settings.json for the current config"

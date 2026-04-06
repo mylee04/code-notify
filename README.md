@@ -13,7 +13,7 @@ Desktop notifications for AI coding tools - get alerts when tasks complete or in
   <img src="assets/multi-tools-support-02.png" width="48%" alt="All tools enabled"/>
 </p>
 
-[![Version](https://img.shields.io/badge/version-1.7.2-blue.svg)](https://github.com/mylee04/code-notify/releases)
+[![Version](https://img.shields.io/badge/version-1.7.3-blue.svg)](https://github.com/mylee04/code-notify/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![macOS](https://img.shields.io/badge/macOS-supported-green.svg)](https://www.apple.com/macos)
 [![Linux](https://img.shields.io/badge/Linux-supported-green.svg)](https://www.linux.org/)
@@ -21,11 +21,11 @@ Desktop notifications for AI coding tools - get alerts when tasks complete or in
 
 ---
 
-## What's New in v1.7.2
+## What's New in v1.7.3
 
-- **`curl` installs now fetch the full click-through runtime**: non-Homebrew installs on macOS and Linux now download the click-through helper files that `cn status`, notifier activation, and click-through commands expect
-- **Fixes a real install regression after the click-through refactor**: raw installs no longer fail with missing `click-through*.sh` files after installation
-- **Homebrew, npm, and script installs stay aligned again**: all supported install paths now ship the same click-through runtime layout
+- **Claude hook detection is stricter now**: `cn on claude` no longer treats arbitrary `Notification` or `Stop` entries as if code-notify were already installed
+- **Existing Claude hooks are preserved**: enabling or disabling code-notify now adds or removes only the managed Claude Notification/Stop commands instead of overwriting unrelated hooks
+- **Unix and Windows Claude config behavior stay aligned**: both runtimes now preserve custom hook entries and have regression coverage for the merge/remove path
 
 ---
 
@@ -61,7 +61,7 @@ cn update
 code-notify version
 ```
 
-If you were using the older `claude-notify` hook layout, supported upgrades now repair those Claude hooks automatically. On Windows, that repair also covers older `notify.ps1` hook layouts and alternate Claude settings locations such as `%USERPROFILE%\.config\.claude\settings.json`.
+If you were using the older `claude-notify` hook layout, supported upgrades now repair those Claude hooks automatically. On Windows, that repair also covers older `notify.ps1` hook layouts and alternate Claude settings locations such as `%USERPROFILE%\.config\.claude\settings.json`. Existing unrelated Claude hooks are preserved during enable/disable operations.
 
 **Linux / WSL**
 

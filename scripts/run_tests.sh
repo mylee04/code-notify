@@ -214,6 +214,14 @@ else
     test_fail "windows rate-limit state failed"
 fi
 
+# Test 22: Claude hook detection only matches current hooks and preserves unrelated entries on Windows
+test_start "windows Claude hook preservation"
+if bash tests/test-windows-claude-hook-preservation.sh >/dev/null 2>&1; then
+    test_pass
+else
+    test_fail "windows Claude hook preservation failed"
+fi
+
 # Summary
 echo ""
 echo "Test Summary:"

@@ -248,12 +248,6 @@ json_has() {
     fi
 }
 
-# Check if file has code-notify specific hooks (Notification or Stop)
-has_claude_notify_hooks() {
-    local file="$1"
-    json_has "$file" '(.hooks.Notification != null) or (.hooks.Stop != null)' '"(Notification|Stop)"'
-}
-
 get_global_claude_notify_command() {
     printf '%s notification claude\n' "$(get_notify_script)"
 }
@@ -262,17 +256,34 @@ get_global_claude_stop_command() {
     printf '%s stop claude\n' "$(get_notify_script)"
 }
 
-has_current_global_claude_hooks() {
+get_project_claude_notify_command() {
+    local project_name="$1"
+    printf '%s notification claude %s\n' "$(shell_quote "$(get_notify_script)")" "$(shell_quote "$project_name")"
+}
+
+get_project_claude_stop_command() {
+    local project_name="$1"
+    printf '%s stop claude %s\n' "$(shell_quote "$(get_notify_script)")" "$(shell_quote "$project_name")"
+}
+
+get_managed_claude_notification_pattern() {
+    printf '%s\n' '(claude-notify|code-notify.*notifier\.sh|(?:^|[\\/])notify\.(?:ps1|sh)).*(notification|PreToolUse)(?:\s|$)'
+}
+
+get_managed_claude_stop_pattern() {
+    printf '%s\n' '(claude-notify|code-notify.*notifier\.sh|(?:^|[\\/])notify\.(?:ps1|sh)).*stop(?:\s|$)'
+}
+
+has_claude_hooks_for_commands() {
     local file="$1"
     local matcher notify_cmd stop_cmd
+    matcher="$2"
+    notify_cmd="$3"
+    stop_cmd="$4"
 
     if [[ ! -f "$file" ]]; then
         return 1
     fi
-
-    matcher=$(get_notify_matcher)
-    notify_cmd=$(get_global_claude_notify_command)
-    stop_cmd=$(get_global_claude_stop_command)
 
     if has_jq; then
         jq -e \
@@ -280,14 +291,22 @@ has_current_global_claude_hooks() {
             --arg notify "$notify_cmd" \
             --arg stop "$stop_cmd" \
             '
-            (.hooks.Notification | type == "array" and length > 0) and
-            (.hooks.Stop | type == "array" and length > 0) and
-            .hooks.Notification[0].matcher == $matcher and
-            .hooks.Notification[0].hooks[0].type == "command" and
-            .hooks.Notification[0].hooks[0].command == $notify and
-            .hooks.Stop[0].matcher == "" and
-            .hooks.Stop[0].hooks[0].type == "command" and
-            .hooks.Stop[0].hooks[0].command == $stop
+            (.hooks.Notification | type == "array") and
+            (.hooks.Stop | type == "array") and
+            any(.hooks.Notification[]?;
+                (.matcher // "") == $matcher and
+                any(.hooks[]?;
+                    (.type // "") == "command" and
+                    (.command // "") == $notify
+                )
+            ) and
+            any(.hooks.Stop[]?;
+                (.matcher // "") == "" and
+                any(.hooks[]?;
+                    (.type // "") == "command" and
+                    (.command // "") == $stop
+                )
+            )
             ' "$file" >/dev/null 2>&1
         return $?
     fi
@@ -305,14 +324,26 @@ with open(file_path, "r") as fh:
 notification = settings.get("hooks", {}).get("Notification", [])
 stop = settings.get("hooks", {}).get("Stop", [])
 
-assert isinstance(notification, list) and notification
-assert isinstance(stop, list) and stop
-assert notification[0].get("matcher", "") == matcher
-assert notification[0].get("hooks", [{}])[0].get("type") == "command"
-assert notification[0].get("hooks", [{}])[0].get("command") == notify_cmd
-assert stop[0].get("matcher", "") == ""
-assert stop[0].get("hooks", [{}])[0].get("type") == "command"
-assert stop[0].get("hooks", [{}])[0].get("command") == stop_cmd
+def has_matching_command(entries, entry_matcher, command):
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        if entry.get("matcher", "") != entry_matcher:
+            continue
+        for hook in entry.get("hooks", []):
+            if (
+                isinstance(hook, dict)
+                and hook.get("type") == "command"
+                and hook.get("command") == command
+            ):
+                return True
+    return False
+
+if not has_matching_command(notification, matcher, notify_cmd):
+    raise SystemExit(1)
+
+if not has_matching_command(stop, "", stop_cmd):
+    raise SystemExit(1)
 PYTHON
         return $?
     fi
@@ -320,6 +351,26 @@ PYTHON
     grep -qF "\"matcher\": \"$matcher\"" "$file" &&
         grep -qF "\"command\": \"$notify_cmd\"" "$file" &&
         grep -qF "\"command\": \"$stop_cmd\"" "$file"
+}
+
+has_current_global_claude_hooks() {
+    local file="$1"
+    has_claude_hooks_for_commands \
+        "$file" \
+        "$(get_notify_matcher)" \
+        "$(get_global_claude_notify_command)" \
+        "$(get_global_claude_stop_command)"
+}
+
+has_current_project_claude_hooks() {
+    local file="$1"
+    local project_name="${2:-$(get_project_name)}"
+
+    has_claude_hooks_for_commands \
+        "$file" \
+        "$(get_notify_matcher)" \
+        "$(get_project_claude_notify_command "$project_name")" \
+        "$(get_project_claude_stop_command "$project_name")"
 }
 
 has_legacy_global_claude_hooks() {
@@ -395,7 +446,7 @@ is_enabled() {
 # Check if notifications are enabled globally
 is_enabled_globally() {
     # Check new settings.json format first
-    if has_claude_notify_hooks "$GLOBAL_SETTINGS_FILE"; then
+    if has_current_global_claude_hooks "$GLOBAL_SETTINGS_FILE"; then
         return 0
     fi
     # Fall back to legacy hooks.json
@@ -525,96 +576,275 @@ get_status_info() {
 }
 
 # Enable hooks in settings.json (new format)
-enable_hooks_in_settings() {
-    local notify_script=$(get_notify_script)
-    local notify_matcher=$(get_notify_matcher)
+update_claude_hooks_in_settings_file() {
+    local file="$1"
+    local matcher="$2"
+    local notify_cmd="$3"
+    local stop_cmd="$4"
+    local mode="$5"
+    local notify_pattern stop_pattern
 
-    # Ensure .claude directory exists
-    mkdir -p "$(dirname "$GLOBAL_SETTINGS_FILE")"
+    notify_pattern="$(get_managed_claude_notification_pattern)"
+    stop_pattern="$(get_managed_claude_stop_pattern)"
 
-    # Add hooks using jq (preferred) or python (fallback)
+    mkdir -p "$(dirname "$file")"
+
     if has_jq; then
-        safe_jq_update "$GLOBAL_SETTINGS_FILE" '.hooks = {
-            "Notification": [{
-                "matcher": $matcher,
-                "hooks": [{
-                    "type": "command",
-                    "command": ($script + " notification claude")
-                }]
-            }],
-            "Stop": [{
-                "matcher": "",
-                "hooks": [{
-                    "type": "command",
-                    "command": ($script + " stop claude")
-                }]
-            }]
-        }' --arg script "$notify_script" --arg matcher "$notify_matcher"
+        local settings new_settings jq_filter
+        settings="{}"
+        if [[ -f "$file" ]]; then
+            settings=$(cat "$file")
+        fi
+
+        if [[ "$mode" == "enable" ]]; then
+            jq_filter='
+                def array_or_empty:
+                    if type == "array" then . else [] end;
+                def strip_managed($exact; $pattern):
+                    array_or_empty
+                    | map(
+                        if (.hooks | type) == "array" then
+                            .hooks = (
+                                (.hooks | array_or_empty)
+                                | map(
+                                    select(
+                                        ((.type // "") != "command") or
+                                        (
+                                            ((.command // "") != $exact) and
+                                            (((.command // "") | test($pattern)) | not)
+                                        )
+                                    )
+                                )
+                            )
+                        else
+                            .
+                        end
+                    )
+                    | map(select(((.hooks | type) != "array") or ((.hooks | length) > 0)));
+                .hooks = (if (.hooks | type) == "object" then .hooks else {} end) |
+                .hooks.Notification = (
+                    (.hooks.Notification | strip_managed($notify; $notify_pattern)) + [{
+                        "matcher": $matcher,
+                        "hooks": [{
+                            "type": "command",
+                            "command": $notify
+                        }]
+                    }]
+                ) |
+                .hooks.Stop = (
+                    (.hooks.Stop | strip_managed($stop; $stop_pattern)) + [{
+                        "matcher": "",
+                        "hooks": [{
+                            "type": "command",
+                            "command": $stop
+                        }]
+                    }]
+                )'
+        else
+            jq_filter='
+                def array_or_empty:
+                    if type == "array" then . else [] end;
+                def strip_managed($exact; $pattern):
+                    array_or_empty
+                    | map(
+                        if (.hooks | type) == "array" then
+                            .hooks = (
+                                (.hooks | array_or_empty)
+                                | map(
+                                    select(
+                                        ((.type // "") != "command") or
+                                        (
+                                            ((.command // "") != $exact) and
+                                            (((.command // "") | test($pattern)) | not)
+                                        )
+                                    )
+                                )
+                            )
+                        else
+                            .
+                        end
+                    )
+                    | map(select(((.hooks | type) != "array") or ((.hooks | length) > 0)));
+                .hooks = (if (.hooks | type) == "object" then .hooks else {} end) |
+                .hooks.Notification = (.hooks.Notification | strip_managed($notify; $notify_pattern)) |
+                .hooks.Stop = (.hooks.Stop | strip_managed($stop; $stop_pattern)) |
+                if (.hooks.Notification | length) == 0 then del(.hooks.Notification) else . end |
+                if (.hooks.Stop | length) == 0 then del(.hooks.Stop) else . end |
+                if (.hooks | length) == 0 then del(.hooks) else . end'
+        fi
+
+        if ! new_settings=$(printf '%s\n' "$settings" | jq \
+            --arg matcher "$matcher" \
+            --arg notify "$notify_cmd" \
+            --arg stop "$stop_cmd" \
+            --arg notify_pattern "$notify_pattern" \
+            --arg stop_pattern "$stop_pattern" \
+            "$jq_filter" 2>/dev/null); then
+            echo "Error: Failed to parse or update configuration JSON" >&2
+            echo "File unchanged: $file" >&2
+            return 1
+        fi
+
+        if [[ -z "$new_settings" ]]; then
+            echo "Error: jq produced empty output, file unchanged" >&2
+            return 1
+        fi
+
+        if [[ "$mode" == "disable" && "$new_settings" == "{}" ]]; then
+            rm -f "$file"
+            return 0
+        fi
+
+        atomic_write "$file" "$new_settings"
+        return $?
     elif has_python3; then
-        # Use Python as fallback - pass JSON via temp file to avoid shell escaping issues
         local settings="{}"
-        if [[ -f "$GLOBAL_SETTINGS_FILE" ]]; then
-            settings=$(cat "$GLOBAL_SETTINGS_FILE")
+        if [[ -f "$file" ]]; then
+            settings=$(cat "$file")
         fi
 
         local tmp_json
         tmp_json=$(mktemp) || { echo "Error: Failed to create temp file" >&2; return 1; }
-
-        # Write settings to temp file, then have Python read and clean it up
         printf '%s\n' "$settings" > "$tmp_json"
 
-        python3 - "$GLOBAL_SETTINGS_FILE" "$notify_script" "$notify_matcher" "$tmp_json" << 'PYTHON'
-import sys
+        python3 - "$file" "$mode" "$matcher" "$notify_cmd" "$stop_cmd" "$notify_pattern" "$stop_pattern" "$tmp_json" << 'PYTHON'
 import json
-import tempfile
 import os
+import re
+import sys
+import tempfile
 
-file_path = sys.argv[1]
-script = sys.argv[2]
-matcher = sys.argv[3]
-json_file = sys.argv[4]
+(
+    file_path,
+    mode,
+    matcher,
+    notify_cmd,
+    stop_cmd,
+    notify_pattern,
+    stop_pattern,
+    json_file,
+) = sys.argv[1:9]
 
 try:
-    with open(json_file, 'r') as f:
-        settings = json.load(f)
+    with open(json_file, "r") as fh:
+        settings = json.load(fh)
 finally:
-    # Always clean up temp file
     try:
         os.unlink(json_file)
     except OSError:
         pass
 
-settings['hooks'] = {
-    'Notification': [{
-        'matcher': matcher,
-        'hooks': [{'type': 'command', 'command': f'{script} notification claude'}]
-    }],
-    'Stop': [{
-        'matcher': '',
-        'hooks': [{'type': 'command', 'command': f'{script} stop claude'}]
-    }]
-}
+notify_regex = re.compile(notify_pattern)
+stop_regex = re.compile(stop_pattern)
 
-# Atomic write: write to temp file, then rename
+def is_managed_hook(hook, exact_cmd, regex):
+    if not isinstance(hook, dict):
+        return False
+    if hook.get("type") != "command":
+        return False
+    command = hook.get("command")
+    if not isinstance(command, str):
+        return False
+    if command == exact_cmd:
+        return True
+    return bool(regex.search(command))
+
+def strip_managed(entries, exact_cmd, regex):
+    cleaned = []
+    if not isinstance(entries, list):
+        return cleaned
+
+    for entry in entries:
+        if not isinstance(entry, dict):
+            cleaned.append(entry)
+            continue
+
+        new_entry = dict(entry)
+        hooks = entry.get("hooks")
+        if isinstance(hooks, list):
+            filtered_hooks = [
+                hook for hook in hooks
+                if not is_managed_hook(hook, exact_cmd, regex)
+            ]
+            if not filtered_hooks:
+                continue
+            new_entry["hooks"] = filtered_hooks
+
+        cleaned.append(new_entry)
+
+    return cleaned
+
+hooks = settings.get("hooks")
+if not isinstance(hooks, dict):
+    hooks = {}
+else:
+    hooks = dict(hooks)
+
+notification_entries = strip_managed(hooks.get("Notification", []), notify_cmd, notify_regex)
+stop_entries = strip_managed(hooks.get("Stop", []), stop_cmd, stop_regex)
+
+if mode == "enable":
+    notification_entries.append({
+        "matcher": matcher,
+        "hooks": [{"type": "command", "command": notify_cmd}],
+    })
+    stop_entries.append({
+        "matcher": "",
+        "hooks": [{"type": "command", "command": stop_cmd}],
+    })
+
+if notification_entries:
+    hooks["Notification"] = notification_entries
+else:
+    hooks.pop("Notification", None)
+
+if stop_entries:
+    hooks["Stop"] = stop_entries
+else:
+    hooks.pop("Stop", None)
+
+if hooks:
+    settings["hooks"] = hooks
+else:
+    settings.pop("hooks", None)
+
+if not settings:
+    try:
+        os.remove(file_path)
+    except FileNotFoundError:
+        pass
+    raise SystemExit(0)
+
 dir_path = os.path.dirname(file_path)
 content = json.dumps(settings, indent=2)
-
-fd, tmp_path = tempfile.mkstemp(dir=dir_path, prefix='.tmp.')
+fd, tmp_path = tempfile.mkstemp(dir=dir_path, prefix=".tmp.")
 try:
-    with os.fdopen(fd, 'w') as f:
-        f.write(content)
-        f.write('\n')
+    with os.fdopen(fd, "w") as fh:
+        fh.write(content)
+        fh.write("\n")
     os.replace(tmp_path, file_path)
 except Exception:
     os.unlink(tmp_path)
     raise
 PYTHON
+        return $?
     else
-        # No jq or python - abort to avoid data loss
         echo "Error: jq or python3 required for config preservation" >&2
         echo "Install jq: brew install jq" >&2
         return 1
     fi
+}
+
+enable_hooks_in_settings() {
+    local notify_matcher
+    notify_matcher=$(get_notify_matcher)
+
+    update_claude_hooks_in_settings_file \
+        "$GLOBAL_SETTINGS_FILE" \
+        "$notify_matcher" \
+        "$(get_global_claude_notify_command)" \
+        "$(get_global_claude_stop_command)" \
+        "enable"
 }
 
 # Disable hooks in settings.json (new format)
@@ -623,123 +853,30 @@ disable_hooks_in_settings() {
         return 0
     fi
 
-    # Remove hooks using jq (preferred) or python (fallback)
-    if has_jq; then
-        local settings new_settings
-        settings=$(cat "$GLOBAL_SETTINGS_FILE")
-
-        # Apply jq filter with error checking
-        if ! new_settings=$(echo "$settings" | jq 'del(.hooks)' 2>/dev/null); then
-            echo "Error: Failed to parse configuration JSON" >&2
-            echo "File unchanged: $GLOBAL_SETTINGS_FILE" >&2
-            return 1
-        fi
-
-        # Only write if there's actual content left (not just {})
-        if [[ "$new_settings" != "{}" ]]; then
-            atomic_write "$GLOBAL_SETTINGS_FILE" "$new_settings"
-        else
-            # File would be empty, just remove it
-            rm -f "$GLOBAL_SETTINGS_FILE"
-        fi
-    elif has_python3; then
-        python3 - "$GLOBAL_SETTINGS_FILE" << 'PYTHON'
-import sys
-import json
-import os
-import tempfile
-
-file_path = sys.argv[1]
-with open(file_path, 'r') as f:
-    settings = json.load(f)
-
-if 'hooks' in settings:
-    del settings['hooks']
-
-if settings:
-    # Atomic write: write to temp file, then rename
-    dir_path = os.path.dirname(file_path)
-    content = json.dumps(settings, indent=2)
-
-    fd, tmp_path = tempfile.mkstemp(dir=dir_path, prefix='.tmp.')
-    try:
-        with os.fdopen(fd, 'w') as f:
-            f.write(content)
-            f.write('\n')
-        os.replace(tmp_path, file_path)
-    except Exception:
-        os.unlink(tmp_path)
-        raise
-else:
-    os.remove(file_path)
-PYTHON
-    else
-        # No jq or python - abort to avoid data loss
-        echo "Error: jq or python3 required to safely disable hooks" >&2
-        echo "Install jq: brew install jq" >&2
-        return 1
-    fi
+    update_claude_hooks_in_settings_file \
+        "$GLOBAL_SETTINGS_FILE" \
+        "$(get_notify_matcher)" \
+        "$(get_global_claude_notify_command)" \
+        "$(get_global_claude_stop_command)" \
+        "disable"
 }
 
 # Disable hooks in project settings.json
 disable_project_hooks_in_settings() {
     local project_root="${1:-$(get_project_root)}"
     local project_settings="$project_root/$PROJECT_SETTINGS_FILE"
+    local project_name="${2:-$(basename "$project_root")}"
 
     if [[ ! -f "$project_settings" ]]; then
         return 0
     fi
 
-    if has_jq; then
-        local settings new_settings
-        settings=$(cat "$project_settings")
-
-        if ! new_settings=$(echo "$settings" | jq 'del(.hooks)' 2>/dev/null); then
-            echo "Error: Failed to parse configuration JSON" >&2
-            echo "File unchanged: $project_settings" >&2
-            return 1
-        fi
-
-        if [[ "$new_settings" != "{}" ]]; then
-            atomic_write "$project_settings" "$new_settings"
-        else
-            rm -f "$project_settings"
-        fi
-    elif has_python3; then
-        python3 - "$project_settings" << 'PYTHON'
-import sys
-import json
-import os
-import tempfile
-
-file_path = sys.argv[1]
-with open(file_path, 'r') as f:
-    settings = json.load(f)
-
-if 'hooks' in settings:
-    del settings['hooks']
-
-if settings:
-    dir_path = os.path.dirname(file_path)
-    content = json.dumps(settings, indent=2)
-
-    fd, tmp_path = tempfile.mkstemp(dir=dir_path, prefix='.tmp.')
-    try:
-        with os.fdopen(fd, 'w') as f:
-            f.write(content)
-            f.write('\n')
-        os.replace(tmp_path, file_path)
-    except Exception:
-        os.unlink(tmp_path)
-        raise
-else:
-    os.remove(file_path)
-PYTHON
-    else
-        echo "Error: jq or python3 required to safely disable project hooks" >&2
-        echo "Install jq: brew install jq" >&2
-        return 1
-    fi
+    update_claude_hooks_in_settings_file \
+        "$project_settings" \
+        "$(get_notify_matcher)" \
+        "$(get_project_claude_notify_command "$project_name")" \
+        "$(get_project_claude_stop_command "$project_name")" \
+        "disable"
 }
 
 # Enable hooks in project settings.json
@@ -747,111 +884,24 @@ enable_project_hooks_in_settings() {
     local project_root="${1:-$(get_project_root)}"
     local project_name="${2:-$(get_project_name)}"
     local project_settings="$project_root/$PROJECT_SETTINGS_FILE"
-    local notify_script=$(get_notify_script)
-    local notify_matcher=$(get_notify_matcher)
+    local notify_matcher
+    notify_matcher=$(get_notify_matcher)
 
-    # Ensure .claude directory exists
     mkdir -p "$project_root/.claude"
 
-    # Read existing settings or create new
-    local settings="{}"
-    if [[ -f "$project_settings" ]]; then
-        settings=$(cat "$project_settings")
-    fi
-
-    # Add hooks using jq (preferred) or python (fallback)
-    if has_jq; then
-        # Pre-quote script and name for safe shell execution
-        local quoted_script=$(shell_quote "$notify_script")
-        local quoted_name=$(shell_quote "$project_name")
-
-        safe_jq_update "$project_settings" '.hooks = {
-            "Notification": [{
-                "matcher": $matcher,
-                "hooks": [{
-                    "type": "command",
-                    "command": ($qscript + " notification claude " + $qname)
-                }]
-            }],
-            "Stop": [{
-                "matcher": "",
-                "hooks": [{
-                    "type": "command",
-                    "command": ($qscript + " stop claude " + $qname)
-                }]
-            }]
-        }' --arg matcher "$notify_matcher" --arg qscript "$quoted_script" --arg qname "$quoted_name"
-    elif has_python3; then
-        # Use Python fallback - pass JSON via temp file to avoid shell escaping issues
-        local tmp_json
-        tmp_json=$(mktemp) || { echo "Error: Failed to create temp file" >&2; return 1; }
-
-        printf '%s\n' "$settings" > "$tmp_json"
-
-        python3 - "$project_settings" "$notify_script" "$notify_matcher" "$project_name" "$tmp_json" << 'PYTHON'
-import sys
-import json
-import tempfile
-import os
-import shlex
-
-file_path = sys.argv[1]
-script = sys.argv[2]
-matcher = sys.argv[3]
-name = sys.argv[4]
-json_file = sys.argv[5]
-
-try:
-    with open(json_file, 'r') as f:
-        settings = json.load(f)
-finally:
-    try:
-        os.unlink(json_file)
-    except OSError:
-        pass
-
-# Shell-quote script and name for safe command execution
-qscript = shlex.quote(script)
-qname = shlex.quote(name)
-
-settings['hooks'] = {
-    'Notification': [{
-        'matcher': matcher,
-        'hooks': [{'type': 'command', 'command': f'{qscript} notification claude {qname}'}]
-    }],
-    'Stop': [{
-        'matcher': '',
-        'hooks': [{'type': 'command', 'command': f'{qscript} stop claude {qname}'}]
-    }]
-}
-
-# Atomic write: write to temp file, then rename
-dir_path = os.path.dirname(file_path)
-content = json.dumps(settings, indent=2)
-
-fd, tmp_path = tempfile.mkstemp(dir=dir_path, prefix='.tmp.')
-try:
-    with os.fdopen(fd, 'w') as f:
-        f.write(content)
-        f.write('\n')
-    os.replace(tmp_path, file_path)
-except Exception:
-    os.unlink(tmp_path)
-    raise
-PYTHON
-    else
-        # No jq or python - abort to avoid data loss
-        echo "Error: jq or python3 required for config preservation" >&2
-        echo "Install jq: brew install jq" >&2
-        return 1
-    fi
+    update_claude_hooks_in_settings_file \
+        "$project_settings" \
+        "$notify_matcher" \
+        "$(get_project_claude_notify_command "$project_name")" \
+        "$(get_project_claude_stop_command "$project_name")" \
+        "enable"
 }
 
 # Check if project has settings.json with code-notify hooks
 is_enabled_project_settings() {
     local project_root=$(get_project_root 2>/dev/null || echo "$PWD")
     local project_settings="$project_root/$PROJECT_SETTINGS_FILE"
-    has_claude_notify_hooks "$project_settings"
+    has_current_project_claude_hooks "$project_settings" "$(get_project_name)"
 }
 
 # ============================================
