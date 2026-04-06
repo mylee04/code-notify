@@ -661,6 +661,24 @@ function Remove-ManagedClaudeHookEntries {
     return ,$result
 }
 
+function Get-ObjectPropertyNames {
+    param([object]$Object)
+
+    if ($null -eq $Object) {
+        return @()
+    }
+
+    if ($Object -is [System.Collections.IDictionary]) {
+        return @($Object.Keys)
+    }
+
+    return @(
+        $Object.PSObject.Properties |
+            Where-Object { $_.MemberType -eq "NoteProperty" } |
+            ForEach-Object { $_.Name }
+    )
+}
+
 function Update-ClaudeSettingsHooks {
     param(
         [object]$Settings,
@@ -720,7 +738,7 @@ function Update-ClaudeSettingsHooks {
         $Settings.hooks.PSObject.Properties.Remove("Stop")
     }
 
-    if ($Settings.hooks.PSObject.Properties.Count -eq 0) {
+    if ((Get-ObjectPropertyNames $Settings.hooks).Count -eq 0) {
         $Settings.PSObject.Properties.Remove("hooks")
     }
 
@@ -1020,7 +1038,7 @@ function Disable-Notifications {
             $settings = Get-Content $settingsFile -Raw | ConvertFrom-Json -ErrorAction SilentlyContinue
             if ($settings -and $settings.hooks) {
                 $settings = Update-ClaudeSettingsHooks -Settings $settings -NotifyScript (Get-NotifyScript) -Disable
-                if ($settings.PSObject.Properties.Count -eq 0) {
+                if ((Get-ObjectPropertyNames $settings).Count -eq 0) {
                     Remove-Item $settingsFile -Force -ErrorAction SilentlyContinue
                 } else {
                     $settings | ConvertTo-Json -Depth 10 | Set-Content $settingsFile -Encoding UTF8

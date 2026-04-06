@@ -117,6 +117,22 @@ try {
     if (Test-HookEntriesContainCommand -Entries @($settings.hooks.Notification) -Matcher "idle_prompt" -Command $notifyCommand) {
         throw "managed Notification hook should be removed during disable"
     }
+
+    Remove-Item $script:SettingsFile -Force -ErrorAction SilentlyContinue
+
+    Enable-Notifications -Tool "claude"
+    $settings = Get-Content $script:SettingsFile -Raw | ConvertFrom-Json -ErrorAction Stop
+    if (-not $settings.hooks) {
+        throw "managed hooks were not created for the clean settings case"
+    }
+
+    Disable-Notifications -Tool "claude"
+    if (Test-Path $script:SettingsFile) {
+        $settings = Get-Content $script:SettingsFile -Raw | ConvertFrom-Json -ErrorAction Stop
+        if ($settings.hooks) {
+            throw "hooks should be removed entirely when only managed Claude hooks existed"
+        }
+    }
 }
 finally {
     Remove-Item $testRoot -Recurse -Force -ErrorAction SilentlyContinue
