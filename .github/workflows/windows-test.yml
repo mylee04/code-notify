@@ -200,10 +200,12 @@ jobs:
         # Disable
         & "$env:USERPROFILE\.code-notify\bin\cn.ps1" off all
 
-        $settings = Get-Content $settingsFile -Raw | ConvertFrom-Json
-        if ($settings.hooks) {
-          Write-Host "ERROR: hooks not removed from settings" -ForegroundColor Red
-          exit 1
+        if (Test-Path $settingsFile) {
+          $settings = Get-Content $settingsFile -Raw | ConvertFrom-Json
+          if ($settings.hooks) {
+            Write-Host "ERROR: hooks not removed from settings" -ForegroundColor Red
+            exit 1
+          }
         }
         Write-Host "OK: Notifications disabled, hooks removed" -ForegroundColor Green
 
