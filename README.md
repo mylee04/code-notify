@@ -13,7 +13,7 @@ Desktop notifications for AI coding tools - get alerts when tasks complete or in
   <img src="assets/multi-tools-support-02.png" width="48%" alt="All tools enabled"/>
 </p>
 
-[![Version](https://img.shields.io/badge/version-1.7.1-blue.svg)](https://github.com/mylee04/code-notify/releases)
+[![Version](https://img.shields.io/badge/version-1.7.2-blue.svg)](https://github.com/mylee04/code-notify/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![macOS](https://img.shields.io/badge/macOS-supported-green.svg)](https://www.apple.com/macos)
 [![Linux](https://img.shields.io/badge/Linux-supported-green.svg)](https://www.linux.org/)
@@ -21,11 +21,11 @@ Desktop notifications for AI coding tools - get alerts when tasks complete or in
 
 ---
 
-## What's New in v1.7.1
+## What's New in v1.7.2
 
-- **Generated notification state files now live under `notifications/state`**: root-level `~/.claude/notifications` stays cleaner because internal rate-limit files no longer pile up beside user-facing settings
-- **Supported upgrades keep working during the move**: legacy root-level `last_notification_*` and `last_stop_notification` files are still read as fallback and are cleaned up on fresh writes
-- **Windows and Unix runtimes stay aligned**: both runtimes now use the same state-folder layout, and regression tests cover the new path behavior
+- **`curl` installs now fetch the full click-through runtime**: non-Homebrew installs on macOS and Linux now download the click-through helper files that `cn status`, notifier activation, and click-through commands expect
+- **Fixes a real install regression after the click-through refactor**: raw installs no longer fail with missing `click-through*.sh` files after installation
+- **Homebrew, npm, and script installs stay aligned again**: all supported install paths now ship the same click-through runtime layout
 
 ---
 
@@ -214,7 +214,7 @@ cn update     # Runs: npm install -g code-notify@latest
 
 **Too many `last_notification_*` files in `~/.claude/notifications`?**
 
-As of `v1.7.1`, generated rate-limit state files are stored under `~/.claude/notifications/state/` instead of cluttering the root notifications folder.
+Generated rate-limit state files are stored under `~/.claude/notifications/state/` instead of cluttering the root notifications folder.
 
 ## Project Structure
 
