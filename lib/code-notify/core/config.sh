@@ -33,12 +33,17 @@ PROJECT_SETTINGS_LOCAL_FILE=".claude/settings.local.json"
 # Notification types configuration
 NOTIFY_TYPES_FILE="$HOME/.claude/notifications/notify-types"
 DEFAULT_NOTIFY_TYPE="idle_prompt"
+NOTIFICATION_ALERT_TYPES="idle_prompt|permission_prompt|auth_success|elicitation_dialog"
+CLAUDE_EVENT_ALERT_TYPES="SubagentStart|SubagentStop|TeammateIdle|TaskCreated|TaskCompleted"
 
 # Available notification types:
 # - idle_prompt: AI is waiting for user input (after 60+ seconds idle)
 # - permission_prompt: AI needs permission to use a tool
 # - auth_success: Authentication success notifications
 # - elicitation_dialog: MCP tool input needed
+# - SubagentStart/SubagentStop: Claude Code subagent lifecycle events
+# - TeammateIdle: Claude Code teammate waiting for input
+# - TaskCreated/TaskCompleted: Claude Code agent-team task lifecycle events
 
 # Codex paths
 CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"
@@ -266,6 +271,10 @@ get_project_claude_stop_command() {
     printf '%s stop claude %s\n' "$(shell_quote "$(get_notify_script)")" "$(shell_quote "$project_name")"
 }
 
+get_managed_claude_event_pattern() {
+    printf '%s\n' '(claude-notify|code-notify.*notifier\.sh|(?:^|[\\/])notify\.(?:ps1|sh)).*(SubagentStart|SubagentStop|TeammateIdle|TaskCreated|TaskCompleted)(?:\s|$)'
+}
+
 get_managed_claude_notification_pattern() {
     printf '%s\n' '(claude-notify|code-notify.*notifier\.sh|(?:^|[\\/])notify\.(?:ps1|sh)).*(notification|PreToolUse)(?:\s|$)'
 }
@@ -276,10 +285,13 @@ get_managed_claude_stop_pattern() {
 
 has_claude_hooks_for_commands() {
     local file="$1"
-    local matcher notify_cmd stop_cmd
+    local matcher notify_cmd stop_cmd event_prefix event_suffix event_types
     matcher="$2"
     notify_cmd="$3"
     stop_cmd="$4"
+    event_prefix="${5:-}"
+    event_suffix="${6:-}"
+    event_types="$(get_claude_event_alert_types)"
 
     if [[ ! -f "$file" ]]; then
         return 1
@@ -290,39 +302,52 @@ has_claude_hooks_for_commands() {
             --arg matcher "$matcher" \
             --arg notify "$notify_cmd" \
             --arg stop "$stop_cmd" \
+            --arg event_prefix "$event_prefix" \
+            --arg event_suffix "$event_suffix" \
+            --arg event_types "$event_types" \
             '
-            (.hooks.Notification | type == "array") and
-            (.hooks.Stop | type == "array") and
-            any(.hooks.Notification[]?;
-                (.matcher // "") == $matcher and
-                any(.hooks[]?;
-                    (.type // "") == "command" and
-                    (.command // "") == $notify
-                )
+            def has_command($entries; $matcher; $command):
+                ($entries | type == "array") and
+                any($entries[]?;
+                    (.matcher // "") == $matcher and
+                    any(.hooks[]?;
+                        (.type // "") == "command" and
+                        (.command // "") == $command
+                    )
+                );
+            def all_events_present:
+                ($event_types | split("|") | map(select(. != ""))) as $events |
+                . as $root |
+                all($events[]; . as $event |
+                    ($root | has_command(.hooks[$event]; ""; ($event_prefix + $event + $event_suffix)))
+                );
+            (
+                if $matcher == "" then
+                    true
+                else
+                    has_command(.hooks.Notification; $matcher; $notify)
+                end
             ) and
-            any(.hooks.Stop[]?;
-                (.matcher // "") == "" and
-                any(.hooks[]?;
-                    (.type // "") == "command" and
-                    (.command // "") == $stop
-                )
-            )
+            (.hooks.Stop | type == "array") and
+            has_command(.hooks.Stop; ""; $stop) and
+            all_events_present
             ' "$file" >/dev/null 2>&1
         return $?
     fi
 
     if has_python3; then
-        python3 - "$file" "$matcher" "$notify_cmd" "$stop_cmd" << 'PYTHON'
+        python3 - "$file" "$matcher" "$notify_cmd" "$stop_cmd" "$event_prefix" "$event_suffix" "$event_types" << 'PYTHON'
 import json
 import sys
 
-file_path, matcher, notify_cmd, stop_cmd = sys.argv[1:5]
+file_path, matcher, notify_cmd, stop_cmd, event_prefix, event_suffix, event_types = sys.argv[1:8]
 
 with open(file_path, "r") as fh:
     settings = json.load(fh)
 
-notification = settings.get("hooks", {}).get("Notification", [])
-stop = settings.get("hooks", {}).get("Stop", [])
+hooks = settings.get("hooks", {})
+notification = hooks.get("Notification", [])
+stop = hooks.get("Stop", [])
 
 def has_matching_command(entries, entry_matcher, command):
     for entry in entries:
@@ -339,18 +364,35 @@ def has_matching_command(entries, entry_matcher, command):
                 return True
     return False
 
-if not has_matching_command(notification, matcher, notify_cmd):
+if matcher and not has_matching_command(notification, matcher, notify_cmd):
     raise SystemExit(1)
 
 if not has_matching_command(stop, "", stop_cmd):
     raise SystemExit(1)
+
+for event in [item for item in event_types.split("|") if item]:
+    if not has_matching_command(hooks.get(event, []), "", f"{event_prefix}{event}{event_suffix}"):
+        raise SystemExit(1)
 PYTHON
         return $?
     fi
 
-    grep -qF "\"matcher\": \"$matcher\"" "$file" &&
-        grep -qF "\"command\": \"$notify_cmd\"" "$file" &&
-        grep -qF "\"command\": \"$stop_cmd\"" "$file"
+    if [[ -n "$matcher" ]]; then
+        grep -qF "\"matcher\": \"$matcher\"" "$file" || return 1
+        grep -qF "\"command\": \"$notify_cmd\"" "$file" || return 1
+    fi
+
+    grep -qF "\"command\": \"$stop_cmd\"" "$file" || return 1
+
+    local event
+    local -a _code_notify_events=()
+    IFS='|' read -r -a _code_notify_events <<< "$event_types"
+    for event in "${_code_notify_events[@]}"; do
+        [[ -n "$event" ]] || continue
+        grep -qF "\"command\": \"${event_prefix}${event}${event_suffix}\"" "$file" || return 1
+    done
+
+    return 0
 }
 
 has_current_global_claude_hooks() {
@@ -359,7 +401,9 @@ has_current_global_claude_hooks() {
         "$file" \
         "$(get_notify_matcher)" \
         "$(get_global_claude_notify_command)" \
-        "$(get_global_claude_stop_command)"
+        "$(get_global_claude_stop_command)" \
+        "$(get_notify_script) " \
+        " claude"
 }
 
 has_current_project_claude_hooks() {
@@ -370,7 +414,9 @@ has_current_project_claude_hooks() {
         "$file" \
         "$(get_notify_matcher)" \
         "$(get_project_claude_notify_command "$project_name")" \
-        "$(get_project_claude_stop_command "$project_name")"
+        "$(get_project_claude_stop_command "$project_name")" \
+        "$(shell_quote "$(get_notify_script)") " \
+        " claude $(shell_quote "$project_name")"
 }
 
 has_legacy_global_claude_hooks() {
@@ -582,10 +628,14 @@ update_claude_hooks_in_settings_file() {
     local notify_cmd="$3"
     local stop_cmd="$4"
     local mode="$5"
-    local notify_pattern stop_pattern
+    local event_cmd_prefix="${6:-}"
+    local event_cmd_suffix="${7:-}"
+    local notify_pattern stop_pattern event_pattern event_types
 
     notify_pattern="$(get_managed_claude_notification_pattern)"
     stop_pattern="$(get_managed_claude_stop_pattern)"
+    event_pattern="$(get_managed_claude_event_pattern)"
+    event_types="$(get_claude_event_alert_types)"
 
     mkdir -p "$(dirname "$file")"
 
@@ -596,89 +646,96 @@ update_claude_hooks_in_settings_file() {
             settings=$(cat "$file")
         fi
 
-        if [[ "$mode" == "enable" ]]; then
-            jq_filter='
-                def array_or_empty:
-                    if type == "array" then . else [] end;
-                def strip_managed($exact; $pattern):
-                    array_or_empty
-                    | map(
-                        if (.hooks | type) == "array" then
-                            .hooks = (
-                                (.hooks | array_or_empty)
-                                | map(
-                                    select(
-                                        ((.type // "") != "command") or
-                                        (
-                                            ((.command // "") != $exact) and
-                                            (((.command // "") | test($pattern)) | not)
-                                        )
+        jq_filter='
+            def array_or_empty:
+                if type == "array" then . else [] end;
+            def strip_managed($exact; $pattern):
+                array_or_empty
+                | map(
+                    if (.hooks | type) == "array" then
+                        .hooks = (
+                            (.hooks | array_or_empty)
+                            | map(
+                                select(
+                                    ((.type // "") != "command") or
+                                    (
+                                        ((.command // "") != $exact) and
+                                        (((.command // "") | test($pattern)) | not)
                                     )
                                 )
                             )
-                        else
-                            .
-                        end
-                    )
-                    | map(select(((.hooks | type) != "array") or ((.hooks | length) > 0)));
-                .hooks = (if (.hooks | type) == "object" then .hooks else {} end) |
-                .hooks.Notification = (
-                    (.hooks.Notification | strip_managed($notify; $notify_pattern)) + [{
-                        "matcher": $matcher,
-                        "hooks": [{
-                            "type": "command",
-                            "command": $notify
-                        }]
-                    }]
+                        )
+                    else
+                        .
+                    end
+                )
+                | map(select(((.hooks | type) != "array") or ((.hooks | length) > 0)));
+            def remove_empty_hook($name):
+                if (.hooks[$name] | type) == "array" and (.hooks[$name] | length) == 0 then del(.hooks[$name]) else . end;
+            ($event_types | split("|") | map(select(. != ""))) as $enabled_events |
+            ($all_event_types | split("|") | map(select(. != ""))) as $all_events |
+            .hooks = (if (.hooks | type) == "object" then .hooks else {} end) |
+            .hooks.Notification = (.hooks.Notification | strip_managed($notify; $notify_pattern)) |
+            .hooks.Stop = (.hooks.Stop | strip_managed($stop; $stop_pattern)) |
+            reduce $all_events[] as $event (.;
+                .hooks[$event] = (.hooks[$event] | strip_managed(($event_prefix + $event + $event_suffix); $event_pattern)) |
+                remove_empty_hook($event)
+            ) |
+            if $mode == "enable" then
+                (
+                    if $matcher != "" then
+                        .hooks.Notification = (
+                            (.hooks.Notification | array_or_empty) + [{
+                                "matcher": $matcher,
+                                "hooks": [{
+                                    "type": "command",
+                                    "command": $notify
+                                }]
+                            }]
+                        )
+                    else
+                        .
+                    end
                 ) |
                 .hooks.Stop = (
-                    (.hooks.Stop | strip_managed($stop; $stop_pattern)) + [{
+                    (.hooks.Stop | array_or_empty) + [{
                         "matcher": "",
                         "hooks": [{
                             "type": "command",
                             "command": $stop
                         }]
                     }]
-                )'
-        else
-            jq_filter='
-                def array_or_empty:
-                    if type == "array" then . else [] end;
-                def strip_managed($exact; $pattern):
-                    array_or_empty
-                    | map(
-                        if (.hooks | type) == "array" then
-                            .hooks = (
-                                (.hooks | array_or_empty)
-                                | map(
-                                    select(
-                                        ((.type // "") != "command") or
-                                        (
-                                            ((.command // "") != $exact) and
-                                            (((.command // "") | test($pattern)) | not)
-                                        )
-                                    )
-                                )
-                            )
-                        else
-                            .
-                        end
+                ) |
+                reduce $enabled_events[] as $event (.;
+                    .hooks[$event] = (
+                        (.hooks[$event] | array_or_empty) + [{
+                            "matcher": "",
+                            "hooks": [{
+                                "type": "command",
+                                "command": ($event_prefix + $event + $event_suffix)
+                            }]
+                        }]
                     )
-                    | map(select(((.hooks | type) != "array") or ((.hooks | length) > 0)));
-                .hooks = (if (.hooks | type) == "object" then .hooks else {} end) |
-                .hooks.Notification = (.hooks.Notification | strip_managed($notify; $notify_pattern)) |
-                .hooks.Stop = (.hooks.Stop | strip_managed($stop; $stop_pattern)) |
-                if (.hooks.Notification | length) == 0 then del(.hooks.Notification) else . end |
-                if (.hooks.Stop | length) == 0 then del(.hooks.Stop) else . end |
-                if (.hooks | length) == 0 then del(.hooks) else . end'
-        fi
+                )
+            else
+                .
+            end |
+            remove_empty_hook("Notification") |
+            remove_empty_hook("Stop") |
+            if (.hooks | length) == 0 then del(.hooks) else . end'
 
         if ! new_settings=$(printf '%s\n' "$settings" | jq \
             --arg matcher "$matcher" \
             --arg notify "$notify_cmd" \
             --arg stop "$stop_cmd" \
+            --arg mode "$mode" \
             --arg notify_pattern "$notify_pattern" \
             --arg stop_pattern "$stop_pattern" \
+            --arg event_pattern "$event_pattern" \
+            --arg event_prefix "$event_cmd_prefix" \
+            --arg event_suffix "$event_cmd_suffix" \
+            --arg event_types "$event_types" \
+            --arg all_event_types "$CLAUDE_EVENT_ALERT_TYPES" \
             "$jq_filter" 2>/dev/null); then
             echo "Error: Failed to parse or update configuration JSON" >&2
             echo "File unchanged: $file" >&2
@@ -707,7 +764,7 @@ update_claude_hooks_in_settings_file() {
         tmp_json=$(mktemp) || { echo "Error: Failed to create temp file" >&2; return 1; }
         printf '%s\n' "$settings" > "$tmp_json"
 
-        python3 - "$file" "$mode" "$matcher" "$notify_cmd" "$stop_cmd" "$notify_pattern" "$stop_pattern" "$tmp_json" << 'PYTHON'
+        python3 - "$file" "$mode" "$matcher" "$notify_cmd" "$stop_cmd" "$notify_pattern" "$stop_pattern" "$event_pattern" "$event_cmd_prefix" "$event_cmd_suffix" "$event_types" "$CLAUDE_EVENT_ALERT_TYPES" "$tmp_json" << 'PYTHON'
 import json
 import os
 import re
@@ -722,8 +779,13 @@ import tempfile
     stop_cmd,
     notify_pattern,
     stop_pattern,
+    event_pattern,
+    event_cmd_prefix,
+    event_cmd_suffix,
+    event_types,
+    all_event_types,
     json_file,
-) = sys.argv[1:9]
+) = sys.argv[1:14]
 
 try:
     with open(json_file, "r") as fh:
@@ -736,6 +798,7 @@ finally:
 
 notify_regex = re.compile(notify_pattern)
 stop_regex = re.compile(stop_pattern)
+event_regex = re.compile(event_pattern)
 
 def is_managed_hook(hook, exact_cmd, regex):
     if not isinstance(hook, dict):
@@ -782,16 +845,35 @@ else:
 
 notification_entries = strip_managed(hooks.get("Notification", []), notify_cmd, notify_regex)
 stop_entries = strip_managed(hooks.get("Stop", []), stop_cmd, stop_regex)
+enabled_events = [event for event in event_types.split("|") if event]
+all_events = [event for event in all_event_types.split("|") if event]
+
+for event in all_events:
+    event_entries = strip_managed(
+        hooks.get(event, []),
+        f"{event_cmd_prefix}{event}{event_cmd_suffix}",
+        event_regex,
+    )
+    if event_entries:
+        hooks[event] = event_entries
+    else:
+        hooks.pop(event, None)
 
 if mode == "enable":
-    notification_entries.append({
-        "matcher": matcher,
-        "hooks": [{"type": "command", "command": notify_cmd}],
-    })
+    if matcher:
+        notification_entries.append({
+            "matcher": matcher,
+            "hooks": [{"type": "command", "command": notify_cmd}],
+        })
     stop_entries.append({
         "matcher": "",
         "hooks": [{"type": "command", "command": stop_cmd}],
     })
+    for event in enabled_events:
+        hooks[event] = list(hooks.get(event, [])) + [{
+            "matcher": "",
+            "hooks": [{"type": "command", "command": f"{event_cmd_prefix}{event}{event_cmd_suffix}"}],
+        }]
 
 if notification_entries:
     hooks["Notification"] = notification_entries
@@ -844,7 +926,9 @@ enable_hooks_in_settings() {
         "$notify_matcher" \
         "$(get_global_claude_notify_command)" \
         "$(get_global_claude_stop_command)" \
-        "enable"
+        "enable" \
+        "$(get_notify_script) " \
+        " claude"
 }
 
 # Disable hooks in settings.json (new format)
@@ -858,7 +942,9 @@ disable_hooks_in_settings() {
         "$(get_notify_matcher)" \
         "$(get_global_claude_notify_command)" \
         "$(get_global_claude_stop_command)" \
-        "disable"
+        "disable" \
+        "$(get_notify_script) " \
+        " claude"
 }
 
 # Disable hooks in project settings.json
@@ -876,7 +962,9 @@ disable_project_hooks_in_settings() {
         "$(get_notify_matcher)" \
         "$(get_project_claude_notify_command "$project_name")" \
         "$(get_project_claude_stop_command "$project_name")" \
-        "disable"
+        "disable" \
+        "$(shell_quote "$(get_notify_script)") " \
+        " claude $(shell_quote "$project_name")"
 }
 
 # Enable hooks in project settings.json
@@ -894,7 +982,9 @@ enable_project_hooks_in_settings() {
         "$notify_matcher" \
         "$(get_project_claude_notify_command "$project_name")" \
         "$(get_project_claude_stop_command "$project_name")" \
-        "enable"
+        "enable" \
+        "$(shell_quote "$(get_notify_script)") " \
+        " claude $(shell_quote "$project_name")"
 }
 
 # Check if project has settings.json with code-notify hooks
@@ -1230,42 +1320,135 @@ is_tool_enabled() {
 # Get current notification types (returns pipe-separated list)
 get_notify_types() {
     if [[ -f "$NOTIFY_TYPES_FILE" ]]; then
-        cat "$NOTIFY_TYPES_FILE"
+        normalize_notify_types "$(cat "$NOTIFY_TYPES_FILE")"
     else
         echo "$DEFAULT_NOTIFY_TYPE"
     fi
+}
+
+# Normalize an alert type to the canonical value stored in notify-types.
+normalize_alert_type() {
+    local type="$1"
+    local key
+    key="$(printf '%s' "$type" | tr '[:upper:]-' '[:lower:]_')"
+
+    case "$key" in
+        "idle_prompt"|"permission_prompt"|"auth_success"|"elicitation_dialog")
+            printf '%s\n' "$key"
+            ;;
+        "subagentstart"|"subagent_start")
+            printf '%s\n' "SubagentStart"
+            ;;
+        "subagentstop"|"subagent_stop")
+            printf '%s\n' "SubagentStop"
+            ;;
+        "teammateidle"|"teammate_idle")
+            printf '%s\n' "TeammateIdle"
+            ;;
+        "taskcreated"|"task_created")
+            printf '%s\n' "TaskCreated"
+            ;;
+        "taskcompleted"|"task_completed")
+            printf '%s\n' "TaskCompleted"
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+is_notification_alert_type() {
+    case "$1" in
+        "idle_prompt"|"permission_prompt"|"auth_success"|"elicitation_dialog")
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+is_claude_event_alert_type() {
+    case "$1" in
+        "SubagentStart"|"SubagentStop"|"TeammateIdle"|"TaskCreated"|"TaskCompleted")
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+append_unique_notify_type() {
+    local list="$1"
+    local type="$2"
+    local item
+    local -a _code_notify_types=()
+
+    if [[ -z "$list" ]]; then
+        printf '%s\n' "$type"
+        return 0
+    fi
+
+    IFS='|' read -r -a _code_notify_types <<< "$list"
+    for item in "${_code_notify_types[@]}"; do
+        if [[ "$item" == "$type" ]]; then
+            printf '%s\n' "$list"
+            return 0
+        fi
+    done
+
+    printf '%s|%s\n' "$list" "$type"
+}
+
+normalize_notify_types() {
+    local raw="$1"
+    local result="" item canonical
+    local -a _code_notify_raw_types=()
+
+    IFS='|' read -r -a _code_notify_raw_types <<< "$raw"
+    for item in "${_code_notify_raw_types[@]}"; do
+        canonical="$(normalize_alert_type "$item" 2>/dev/null || true)"
+        [[ -n "$canonical" ]] || continue
+        result="$(append_unique_notify_type "$result" "$canonical")"
+    done
+
+    if [[ -z "$result" ]]; then
+        result="$DEFAULT_NOTIFY_TYPE"
+    fi
+
+    printf '%s\n' "$result"
 }
 
 # Set notification types
 set_notify_types() {
     local types="$1"
     mkdir -p "$(dirname "$NOTIFY_TYPES_FILE")"
-    echo "$types" > "$NOTIFY_TYPES_FILE"
+    normalize_notify_types "$types" > "$NOTIFY_TYPES_FILE"
 }
 
 # Add a notification type
 add_notify_type() {
-    local type="$1"
+    local type
+    type="$(normalize_alert_type "$1")" || return 1
     local current=$(get_notify_types)
 
-    if [[ "$current" == *"$type"* ]]; then
+    if is_notify_type_enabled "$type"; then
         return 0  # Already exists
     fi
 
-    if [[ -z "$current" ]]; then
-        set_notify_types "$type"
-    else
-        set_notify_types "$current|$type"
-    fi
+    set_notify_types "$(append_unique_notify_type "$current" "$type")"
 }
 
 # Remove a notification type
 remove_notify_type() {
-    local type="$1"
+    local type
+    type="$(normalize_alert_type "$1")" || return 1
     local current=$(get_notify_types)
+    local new_types="" item
+    local -a _code_notify_types=()
 
-    # Remove the type (handle edge cases)
-    local new_types=$(echo "$current" | sed "s/|$type//g; s/$type|//g; s/^$type$//g")
+    IFS='|' read -r -a _code_notify_types <<< "$current"
+    for item in "${_code_notify_types[@]}"; do
+        [[ "$item" != "$type" ]] || continue
+        new_types="$(append_unique_notify_type "$new_types" "$item")"
+    done
 
     if [[ -z "$new_types" ]]; then
         new_types="$DEFAULT_NOTIFY_TYPE"
@@ -1276,9 +1459,18 @@ remove_notify_type() {
 
 # Check if a notification type is enabled
 is_notify_type_enabled() {
-    local type="$1"
+    local type item
+    type="$(normalize_alert_type "$1" 2>/dev/null || true)"
+    [[ -n "$type" ]] || return 1
     local current=$(get_notify_types)
-    [[ "$current" == *"$type"* ]]
+    local -a _code_notify_types=()
+
+    IFS='|' read -r -a _code_notify_types <<< "$current"
+    for item in "${_code_notify_types[@]}"; do
+        [[ "$item" == "$type" ]] && return 0
+    done
+
+    return 1
 }
 
 # Reset to default notification type
@@ -1288,5 +1480,35 @@ reset_notify_types() {
 
 # Get matcher pattern for current notification types
 get_notify_matcher() {
-    get_notify_types
+    get_notification_alert_types
+}
+
+get_notification_alert_types() {
+    local current result="" item
+    current="$(get_notify_types)"
+    local -a _code_notify_types=()
+
+    IFS='|' read -r -a _code_notify_types <<< "$current"
+    for item in "${_code_notify_types[@]}"; do
+        if is_notification_alert_type "$item"; then
+            result="$(append_unique_notify_type "$result" "$item")"
+        fi
+    done
+
+    printf '%s\n' "$result"
+}
+
+get_claude_event_alert_types() {
+    local current result="" item
+    current="$(get_notify_types)"
+    local -a _code_notify_types=()
+
+    IFS='|' read -r -a _code_notify_types <<< "$current"
+    for item in "${_code_notify_types[@]}"; do
+        if is_claude_event_alert_type "$item"; then
+            result="$(append_unique_notify_type "$result" "$item")"
+        fi
+    done
+
+    printf '%s\n' "$result"
 }

@@ -61,7 +61,8 @@ ${BOLD}ALERT TYPES:${RESET}
     ${GREEN}alerts remove${RESET} <type> Remove a notification type
     ${GREEN}alerts reset${RESET}        Reset to default (idle_prompt only)
 
-    Types: ${CYAN}idle_prompt${RESET} (default), ${CYAN}permission_prompt${RESET}, ${CYAN}auth_success${RESET}, ${CYAN}elicitation_dialog${RESET}
+    Notification types: ${CYAN}idle_prompt${RESET} (default), ${CYAN}permission_prompt${RESET}, ${CYAN}auth_success${RESET}, ${CYAN}elicitation_dialog${RESET}
+    Claude events: ${CYAN}SubagentStart${RESET}, ${CYAN}SubagentStop${RESET}, ${CYAN}TeammateIdle${RESET}, ${CYAN}TaskCreated${RESET}, ${CYAN}TaskCompleted${RESET}
     Note: alert-type matching applies to Claude Code and Gemini CLI hooks.
           Codex currently exposes completion events through its notify payload.
 
@@ -113,6 +114,7 @@ ${BOLD}EXAMPLES:${RESET}
     cn update check         # Check whether an update is needed and show the update command
     cn alerts               # Show alert type config
     cn alerts add permission_prompt  # Also notify on permission requests
+    cn alerts add SubagentStop       # Also notify when Claude subagents finish
     cn alerts reset         # Back to idle_prompt only (less noisy)
     cn sound on             # Enable notification sounds
     cn sound set ~/ding.wav # Use custom sound

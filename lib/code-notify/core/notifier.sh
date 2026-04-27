@@ -137,6 +137,7 @@ NOTIFICATIONS_DIR="$HOME/.claude/notifications"
 RATE_LIMIT_DIR="$NOTIFICATIONS_DIR/state"
 STOP_RATE_LIMIT_SECONDS="${CODE_NOTIFY_STOP_RATE_LIMIT_SECONDS:-10}"
 NOTIFICATION_RATE_LIMIT_SECONDS="${CODE_NOTIFY_NOTIFICATION_RATE_LIMIT_SECONDS:-180}"
+EVENT_RATE_LIMIT_SECONDS="${CODE_NOTIFY_EVENT_RATE_LIMIT_SECONDS:-10}"
 
 sanitize_rate_limit_key() {
     printf '%s' "$1" | tr -c 'A-Za-z0-9._-' '_'
@@ -182,6 +183,19 @@ get_notification_rate_limit_key() {
     local subtype
     subtype=$(get_notification_subtype)
     printf '%s\n' "last_notification_${TOOL_NAME}_${PROJECT_NAME}_${subtype}"
+}
+
+is_claude_event_hook() {
+    case "$HOOK_TYPE" in
+        "SubagentStart"|"SubagentStop"|"TeammateIdle"|"TaskCreated"|"TaskCompleted")
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+get_event_rate_limit_key() {
+    printf '%s\n' "last_event_${TOOL_NAME}_${PROJECT_NAME}_${HOOK_TYPE}"
 }
 
 is_rate_limited() {
@@ -353,6 +367,12 @@ should_suppress_notification() {
         fi
     fi
 
+    if is_claude_event_hook; then
+        if is_rate_limited "$(get_event_rate_limit_key)" "$EVENT_RATE_LIMIT_SECONDS"; then
+            return 0
+        fi
+    fi
+
     # For Stop hooks: Check if stop_hook_active is true
     if [[ "$HOOK_TYPE" == "stop" ]] && [[ -n "$HOOK_DATA" ]]; then
         if echo "$HOOK_DATA" | grep -q '"stop_hook_active":\s*true' 2>/dev/null; then
@@ -375,7 +395,7 @@ should_suppress_notification() {
 }
 
 # Check if notification should be suppressed
-if [[ "$HOOK_TYPE" == "stop" ]] || [[ "$HOOK_TYPE" == "notification" ]]; then
+if [[ "$HOOK_TYPE" == "stop" ]] || [[ "$HOOK_TYPE" == "notification" ]] || is_claude_event_hook; then
     if should_suppress_notification; then
         exit 0
     fi
@@ -386,6 +406,8 @@ if [[ "$HOOK_TYPE" == "stop" ]]; then
     update_rate_limit "last_stop_notification"
 elif [[ "$HOOK_TYPE" == "notification" ]]; then
     update_rate_limit "$(get_notification_rate_limit_key)"
+elif is_claude_event_hook; then
+    update_rate_limit "$(get_event_rate_limit_key)"
 fi
 
 # Set notification parameters based on hook type and tool
@@ -403,6 +425,41 @@ case "$HOOK_TYPE" in
         MESSAGE="$TOOL_DISPLAY needs your input"
         VOICE_MESSAGE="$TOOL_DISPLAY needs your input"
         SOUND="Ping"
+        ;;
+    "SubagentStart")
+        TITLE="$TOOL_DISPLAY 🤖"
+        SUBTITLE="Subagent Started"
+        MESSAGE="$TOOL_DISPLAY started a subagent"
+        VOICE_MESSAGE="$TOOL_DISPLAY started a subagent"
+        SOUND="Pop"
+        ;;
+    "SubagentStop")
+        TITLE="$TOOL_DISPLAY ✅"
+        SUBTITLE="Subagent Complete"
+        MESSAGE="$TOOL_DISPLAY subagent completed"
+        VOICE_MESSAGE="$TOOL_DISPLAY subagent completed"
+        SOUND="Glass"
+        ;;
+    "TeammateIdle")
+        TITLE="$TOOL_DISPLAY 🔔"
+        SUBTITLE="Teammate Idle"
+        MESSAGE="$TOOL_DISPLAY teammate is waiting for input"
+        VOICE_MESSAGE="$TOOL_DISPLAY teammate is waiting for input"
+        SOUND="Ping"
+        ;;
+    "TaskCreated")
+        TITLE="$TOOL_DISPLAY 📌"
+        SUBTITLE="Task Created"
+        MESSAGE="$TOOL_DISPLAY agent-team task was created"
+        VOICE_MESSAGE="$TOOL_DISPLAY task created"
+        SOUND="Pop"
+        ;;
+    "TaskCompleted")
+        TITLE="$TOOL_DISPLAY ✅"
+        SUBTITLE="Task Complete"
+        MESSAGE="$TOOL_DISPLAY agent-team task completed"
+        VOICE_MESSAGE="$TOOL_DISPLAY task completed"
+        SOUND="Glass"
         ;;
     "error"|"failed")
         TITLE="$TOOL_DISPLAY ❌"

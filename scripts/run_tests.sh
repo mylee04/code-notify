@@ -222,6 +222,14 @@ else
     test_fail "windows Claude hook preservation failed"
 fi
 
+# Test 23: Claude event alerts install and remove dedicated hooks
+test_start "Claude event alert hooks"
+if bash tests/test-claude-event-alerts.sh >/dev/null 2>&1; then
+    test_pass
+else
+    test_fail "Claude event alert hooks failed"
+fi
+
 # Summary
 echo ""
 echo "Test Summary:"

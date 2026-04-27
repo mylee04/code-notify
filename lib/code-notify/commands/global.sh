@@ -971,7 +971,7 @@ show_alerts_status() {
     echo "  Matcher: ${CYAN}$current${RESET}"
     echo ""
 
-    echo "  Active types:"
+    echo "  Claude Notification subtypes:"
     if is_notify_type_enabled "idle_prompt"; then
         echo "    ${CHECK_MARK} ${GREEN}idle_prompt${RESET} - AI is waiting for your input (60+ sec idle)"
     else
@@ -997,13 +997,47 @@ show_alerts_status() {
     fi
 
     echo ""
+    echo "  Claude agent/team hook events:"
+    if is_notify_type_enabled "SubagentStart"; then
+        echo "    ${CHECK_MARK} ${GREEN}SubagentStart${RESET} - A Claude subagent started"
+    else
+        echo "    ${MUTE} ${DIM}SubagentStart${RESET}"
+    fi
+
+    if is_notify_type_enabled "SubagentStop"; then
+        echo "    ${CHECK_MARK} ${GREEN}SubagentStop${RESET} - A Claude subagent completed"
+    else
+        echo "    ${MUTE} ${DIM}SubagentStop${RESET}"
+    fi
+
+    if is_notify_type_enabled "TeammateIdle"; then
+        echo "    ${CHECK_MARK} ${GREEN}TeammateIdle${RESET} - A Claude teammate is idle"
+    else
+        echo "    ${MUTE} ${DIM}TeammateIdle${RESET}"
+    fi
+
+    if is_notify_type_enabled "TaskCreated"; then
+        echo "    ${CHECK_MARK} ${GREEN}TaskCreated${RESET} - An agent-team task was created"
+    else
+        echo "    ${MUTE} ${DIM}TaskCreated${RESET}"
+    fi
+
+    if is_notify_type_enabled "TaskCompleted"; then
+        echo "    ${CHECK_MARK} ${GREEN}TaskCompleted${RESET} - An agent-team task completed"
+    else
+        echo "    ${MUTE} ${DIM}TaskCompleted${RESET}"
+    fi
+
+    echo ""
     info "Examples:"
     echo "  ${CYAN}cn alerts add permission_prompt${RESET}   # Also notify on tool permission requests"
+    echo "  ${CYAN}cn alerts add SubagentStop${RESET}        # Notify when Claude subagents finish"
     echo "  ${CYAN}cn alerts add auth_success${RESET}        # Also notify on auth success"
     echo "  ${CYAN}cn alerts remove permission_prompt${RESET} # Stop permission notifications"
     echo "  ${CYAN}cn alerts reset${RESET}                   # Back to idle_prompt only"
     echo ""
-    dim "Alert-type matching currently applies to Claude Code and Gemini CLI hooks."
+    dim "Alert-type matching applies to Claude Code and Gemini CLI hooks."
+    dim "Claude agent/team events are separate hooks and are opt-in."
     dim "Codex currently exposes completion events through notify, so permission_prompt/idle_prompt settings do not change Codex behavior."
     echo ""
     dim "After changing, run 'cn on' to apply the new settings."
@@ -1016,23 +1050,28 @@ show_available_alert_types() {
     echo "  ${CYAN}permission_prompt${RESET}  - AI needs tool permission (can be noisy)"
     echo "  ${CYAN}auth_success${RESET}       - Authentication success"
     echo "  ${CYAN}elicitation_dialog${RESET} - MCP tool input needed"
+    echo ""
+    echo "Claude agent/team hook events:"
+    echo "  ${CYAN}SubagentStart${RESET}      - A Claude subagent started"
+    echo "  ${CYAN}SubagentStop${RESET}       - A Claude subagent completed"
+    echo "  ${CYAN}TeammateIdle${RESET}       - A Claude teammate is idle"
+    echo "  ${CYAN}TaskCreated${RESET}        - An agent-team task was created"
+    echo "  ${CYAN}TaskCompleted${RESET}      - An agent-team task completed"
+    echo ""
+    echo "Aliases like ${CYAN}subagent_stop${RESET}, ${CYAN}teammate-idle${RESET}, and ${CYAN}task_completed${RESET} are accepted."
 }
 
 # Add an alert type
 add_alert_type() {
-    local type="$1"
+    local type
+    type="$(normalize_alert_type "$1" 2>/dev/null || true)"
 
-    # Validate type
-    case "$type" in
-        "idle_prompt"|"permission_prompt"|"auth_success"|"elicitation_dialog")
-            ;;
-        *)
-            error "Unknown notification type: $type"
-            echo ""
-            show_available_alert_types
-            return 1
-            ;;
-    esac
+    if [[ -z "$type" ]]; then
+        error "Unknown notification type: $1"
+        echo ""
+        show_available_alert_types
+        return 1
+    fi
 
     if is_notify_type_enabled "$type"; then
         warning "$type is already enabled"
@@ -1047,7 +1086,15 @@ add_alert_type() {
 
 # Remove an alert type
 remove_alert_type() {
-    local type="$1"
+    local type
+    type="$(normalize_alert_type "$1" 2>/dev/null || true)"
+
+    if [[ -z "$type" ]]; then
+        error "Unknown notification type: $1"
+        echo ""
+        show_available_alert_types
+        return 1
+    fi
 
     if ! is_notify_type_enabled "$type"; then
         warning "$type is not currently enabled"
@@ -1084,6 +1131,7 @@ show_alerts_help() {
     echo "Examples:"
     echo "  cn alerts                        # Show current config"
     echo "  cn alerts add permission_prompt  # Also notify on permission requests"
+    echo "  cn alerts add SubagentStop       # Also notify when Claude subagents finish"
     echo "  cn alerts remove permission_prompt"
     echo "  cn alerts reset                  # Back to idle_prompt only"
 }

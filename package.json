@@ -1,6 +1,6 @@
 {
   "name": "code-notify",
-  "version": "1.7.3",
+  "version": "1.7.4",
   "description": "Desktop notifications for Claude Code, OpenAI Codex, and Gemini CLI",
   "license": "MIT",
   "homepage": "https://github.com/mylee04/code-notify#readme",
@@ -23,9 +23,9 @@
     "node": ">=18"
   },
   "bin": {
-    "code-notify": "./bin/npm-code-notify.js",
-    "cn": "./bin/npm-cn.js",
-    "cnp": "./bin/npm-cnp.js"
+    "code-notify": "bin/npm-code-notify.js",
+    "cn": "bin/npm-cn.js",
+    "cnp": "bin/npm-cnp.js"
   },
   "files": [
     "LICENSE",
