@@ -235,6 +235,38 @@ jobs:
         }
         Write-Host "OK: Codex notifications disabled" -ForegroundColor Green
 
+    - name: Test Claude alert configuration
+      run: |
+        $cn = "$env:USERPROFILE\.code-notify\bin\cn.ps1"
+        $settingsFile = "$env:USERPROFILE\.claude\settings.json"
+        $status = & $cn alerts 6>&1 | Out-String
+        if ($status -notmatch 'Matcher: idle_prompt') {
+          throw "cn alerts did not report the default Claude matcher"
+        }
+
+        & $cn alerts add permission_prompt
+        if ((Test-Path $settingsFile) -and (Get-Content $settingsFile -Raw | ConvertFrom-Json).hooks) {
+          throw "cn alerts enabled Claude hooks before cn on claude"
+        }
+        & $cn on claude
+        $settings = Get-Content $settingsFile -Raw | ConvertFrom-Json
+        if ($settings.hooks.Notification.matcher -cne 'idle_prompt|permission_prompt') {
+          throw "cn on claude did not use the saved alert types"
+        }
+
+        & $cn alerts remove idle_prompt
+        $settings = Get-Content $settingsFile -Raw | ConvertFrom-Json
+        if ($settings.hooks.Notification.matcher -cne 'permission_prompt' -or -not $settings.hooks.Stop) {
+          throw "cn alerts remove did not update the matcher and preserve Stop"
+        }
+
+        & $cn alerts reset
+        $settings = Get-Content $settingsFile -Raw | ConvertFrom-Json
+        if ($settings.hooks.Notification.matcher -cne 'idle_prompt') {
+          throw "cn alerts reset did not restore the default matcher"
+        }
+        & $cn off claude
+
     - name: Test project commands
       run: |
         # Create a test project directory
