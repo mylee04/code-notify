@@ -117,6 +117,8 @@ $script:SettingsFile = if (-not $env:CLAUDE_HOME -and -not (Test-Path $script:De
     $script:DefaultSettingsFile
 }
 $script:NotificationsDir = "$script:ClaudeHome\notifications"
+$script:AlertTypesFile = Join-Path $script:NotificationsDir "notify-types"
+$script:ClaudeAlertTypes = @("idle_prompt", "permission_prompt", "auth_success", "elicitation_dialog")
 $script:VoiceFile = "$script:NotificationsDir\voice-enabled"
 $script:SoundEnabledFile = "$script:NotificationsDir\sound-enabled"
 $script:SoundCustomFile = "$script:NotificationsDir\sound-custom"
@@ -548,6 +550,69 @@ function Get-ClaudeStopCommand {
     return "powershell -ExecutionPolicy Bypass -File `"$NotifyScript`" stop claude"
 }
 
+function Get-ClaudeAlertTypes {
+    if (Test-Path $script:AlertTypesFile) {
+        $savedTypes = @(([string](Get-Content $script:AlertTypesFile -Raw)) -split '\|' | ForEach-Object {
+            $_.Trim().ToLowerInvariant()
+        } | Where-Object { $_ -in $script:ClaudeAlertTypes } | Select-Object -Unique)
+        if ($savedTypes.Count -gt 0) {
+            return $savedTypes
+        }
+    }
+
+    return "idle_prompt"
+}
+
+function Invoke-ClaudeAlertsCommand {
+    param([string]$Action, [string]$AlertType)
+
+    $types = @(Get-ClaudeAlertTypes)
+    if (-not $Action -or $Action -in @("status", "help", "-h", "--help")) {
+        Write-Host "Claude Alert Types (Windows)"
+        Write-Host "Matcher: $($types -join '|')"
+        Write-Host "Available types: $($script:ClaudeAlertTypes -join ', ')"
+        Write-Host "Usage: cn alerts add <type> | remove <type> | reset"
+        return
+    }
+
+    $AlertType = $AlertType.ToLowerInvariant().Replace('-', '_')
+    if ($Action -in @("add", "remove", "rm") -and $AlertType -notin $script:ClaudeAlertTypes) {
+        throw "Choose a Claude alert type: $($script:ClaudeAlertTypes -join ', ')"
+    }
+
+    switch ($Action) {
+        "add" {
+            if ($AlertType -notin $types) {
+                $types += $AlertType
+            }
+        }
+        { $_ -in @("remove", "rm") } {
+            $types = @($types | Where-Object { $_ -ne $AlertType })
+        }
+        "reset" { $types = @("idle_prompt") }
+        default { throw "Unknown alerts command: $Action" }
+    }
+    if ($types.Count -eq 0) {
+        $types = @("idle_prompt")
+    }
+
+    New-Item -ItemType Directory -Path $script:NotificationsDir -Force -ErrorAction Stop | Out-Null
+    ($types -join '|') | Set-Content $script:AlertTypesFile -Encoding ASCII -ErrorAction Stop
+
+    if (Test-Path $script:SettingsFile) {
+        $settings = Get-Content $script:SettingsFile -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+        $notifyScript = Get-NotifyScript
+        $stopCommand = Get-ClaudeStopCommand -NotifyScript $notifyScript
+        if (Test-HookEntriesContainCommand -Entries @($settings.hooks.Stop) -Matcher "" -Command $stopCommand) {
+            Backup-ConfigFile $script:SettingsFile
+            $settings = Update-ClaudeSettingsHooks -Settings $settings -NotifyScript $notifyScript
+            $settings | ConvertTo-Json -Depth 10 | Set-Content $script:SettingsFile -Encoding UTF8 -ErrorAction Stop
+        }
+    }
+
+    Write-Success "Claude alert types: $($types -join '|')"
+}
+
 function Get-ManagedClaudeNotificationPattern {
     return '(claude-notify|code-notify.*notifier\.sh|(?:^|[\\/])notify\.(?:ps1|sh)).*(notification|PreToolUse)(?:\s|$)'
 }
@@ -572,7 +637,7 @@ function Test-HookEntriesContainCommand {
         if ($null -ne $entry.PSObject.Properties['matcher']) {
             $entryMatcher = [string]$entry.matcher
         }
-        if ($entryMatcher -ne $Matcher) {
+        if ($PSBoundParameters.ContainsKey('Matcher') -and $entryMatcher -ne $Matcher) {
             continue
         }
 
@@ -711,7 +776,7 @@ function Update-ClaudeSettingsHooks {
 
     if (-not $Disable) {
         $notificationEntries += [PSCustomObject]@{
-            matcher = "idle_prompt"
+            matcher = (Get-ClaudeAlertTypes) -join '|'
             hooks = @(
                 [PSCustomObject]@{
                     type = "command"
@@ -768,7 +833,7 @@ function Test-ClaudeSettingsCurrentHooks {
     $stopCommand = Get-ClaudeStopCommand -NotifyScript $NotifyScript
 
     return (
-        (Test-HookEntriesContainCommand -Entries @($settings.hooks.Notification) -Matcher "idle_prompt" -Command $notifyCommand) -and
+        (Test-HookEntriesContainCommand -Entries @($settings.hooks.Notification) -Command $notifyCommand) -and
         (Test-HookEntriesContainCommand -Entries @($settings.hooks.Stop) -Matcher "" -Command $stopCommand)
     )
 }
@@ -1828,6 +1893,7 @@ COMMANDS:
     test            Send a test notification
     update [check]  Update code-notify or check the latest release
     channels <cmd>  Configure Slack/Discord delivery
+    alerts [cmd]    Show or configure Claude notification types
     usage <cmd>     Configure Codex/Claude usage alert settings
     voice on        Enable voice notifications
     voice off       Disable voice notifications
@@ -1981,6 +2047,9 @@ function Invoke-CodeNotify {
         }
         "channels" {
             Invoke-ChannelsCommand -SubCommand ($(if ($SubCommand) { $SubCommand } else { "status" })) -Args $Args
+        }
+        "alerts" {
+            Invoke-ClaudeAlertsCommand -Action $SubCommand -AlertType ($Args | Select-Object -First 1)
         }
         "usage" {
             Invoke-UsageCommand -SubCommand ($(if ($SubCommand) { $SubCommand } else { "status" })) -Args $Args

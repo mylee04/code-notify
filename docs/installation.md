@@ -64,6 +64,8 @@ cn channels test all
 
 Webhook URLs are stored locally and are redacted in status output.
 
+On native Windows, use `cn alerts` to view Claude notification types. For example, `cn alerts add permission_prompt` adds permission prompts, and `cn alerts reset` restores the default `idle_prompt` matcher. These commands update enabled global Claude hooks immediately.
+
 ### Optional Usage Alerts
 
 Usage polling and advance reset reminders support macOS/Linux, including WSL. They are not implemented in the native Windows runtime yet.

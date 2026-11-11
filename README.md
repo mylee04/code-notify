@@ -158,7 +158,7 @@ npm packages are published with GitHub Actions Trusted Publisher and npm provena
 | `cn update check`    | Check the latest release and show the update command |
 | `cn click-through`   | Show current macOS click-through mappings    |
 | `cn click-through add <app>` | Add a macOS click-through mapping    |
-| `cn alerts`          | Configure which events trigger notifications |
+| `cn alerts`          | Configure which events trigger notifications (Claude Notification types only on native Windows) |
 | `cn channels`        | Configure Slack/Discord delivery channels    |
 | `cn usage`           | Configure Codex/Claude usage alerts          |
 | `cn sound on`        | Enable sound notifications                   |
@@ -246,6 +246,8 @@ cn alerts reset                    # Back to default (idle_prompt only)
 | `TaskCompleted`      | Claude agent-team task completed               |
 
 Alert-type matching applies to Claude Code notification hooks and Gemini CLI notification hooks. Changes are applied immediately when Claude notifications are already enabled; otherwise, run `cn on` after choosing the alert types. `ask_user` is a Claude-only `PreToolUse` hook for `AskUserQuestion`. Claude Code agent/team events are separate hook events and are opt-in via `cn alerts add SubagentStop`, `cn alerts add TeammateIdle`, or `cn alerts add TaskCompleted`.
+
+On native Windows, `cn alerts` manages Claude's `idle_prompt`, `permission_prompt`, `auth_success`, and `elicitation_dialog` notification types. Changes apply immediately to enabled global Claude hooks. For an existing project hook, run `cnp on` from that project to apply the new matcher.
 
 Agent-team and subagent workflows can be noisy if `permission_prompt` is enabled. If you only want idle pings, run `cn alerts remove permission_prompt`. Codex currently uses completion events from `notify`, so `permission_prompt` and `idle_prompt` settings do not change Codex behavior.
 

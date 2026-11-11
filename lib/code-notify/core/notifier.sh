@@ -399,8 +399,11 @@ is_codex_desktop_trigger() {
 # Function to check if notification should be suppressed
 should_suppress_notification() {
     # Check kill switch first - instant disable without restart
-    if [[ -f "$HOME/.claude/notifications/disabled" ]] && ! is_project_scoped_notification; then
-        return 0  # Suppress notification
+    if ! is_project_scoped_notification; then
+        local mute_tool="${TOOL_NAME:-claude}"
+        if [[ -f "$NOTIFICATIONS_DIR/disabled" || -f "$NOTIFICATIONS_DIR/disabled.$(sanitize_rate_limit_key "$mute_tool")" ]]; then
+            return 0
+        fi
     fi
 
     # Skip suppression checks for test notifications
