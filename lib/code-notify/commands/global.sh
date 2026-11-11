@@ -351,7 +351,8 @@ show_version() {
 
 # Enable notifications globally
 enable_notifications_global() {
-    local tool
+    local tool other_tool
+    local mute_file="$HOME/.claude/notifications/disabled"
     tool="$(normalize_tool_argument "${1:-}")"
 
     header "${ROCKET} Enabling Notifications"
@@ -359,13 +360,20 @@ enable_notifications_global() {
 
     ensure_config_dir
 
-    # Remove kill switch if present
-    rm -f "$HOME/.claude/notifications/disabled"
-
     # If specific tool requested
     if [[ -n "$tool" ]]; then
-        enable_single_tool "$tool"
-        return $?
+        enable_single_tool "$tool" || return $?
+        if [[ -f "$mute_file" ]]; then
+            # Preserve the global mute for the other tools, including running sessions.
+            for other_tool in claude codex gemini omp; do
+                if [[ "$other_tool" != "$tool" ]]; then
+                    touch "${mute_file}.$other_tool" || return 1
+                fi
+            done
+            rm -f "$mute_file" || return 1
+        fi
+        rm -f "${mute_file}.$tool"
+        return
     fi
 
     # No tool specified - enable for all detected tools
@@ -378,9 +386,10 @@ enable_notifications_global() {
     fi
 
     local enabled_count=0
+    rm -f "$mute_file" || return 1
     for t in $installed_tools; do
-        if enable_single_tool "$t" "quiet"; then
-            ((enabled_count++))
+        if enable_single_tool "$t" "quiet" && rm -f "${mute_file}.$t"; then
+            ((++enabled_count))
         fi
     done
 
@@ -454,19 +463,29 @@ enable_single_tool() {
 # Disable notifications globally
 disable_notifications_global() {
     local tool
+    local mute_file="$HOME/.claude/notifications/disabled"
     tool="$(normalize_tool_argument "${1:-}")"
 
     header "${MUTE} Disabling Notifications"
     echo ""
 
-    # Create kill switch for instant effect on running sessions
-    touch "$HOME/.claude/notifications/disabled"
+    mkdir -p "$(dirname "$mute_file")" || return 1
 
-    # If specific tool requested
-    if [[ -n "$tool" ]]; then
-        disable_single_tool "$tool"
-        return $?
-    fi
+    # Mute only the requested tool in running sessions.
+    case "$tool" in
+        claude|codex|gemini|omp)
+            touch "${mute_file}.$tool" || return 1
+            disable_single_tool "$tool"
+            return $?
+            ;;
+        "")
+            touch "$mute_file" || return 1
+            ;;
+        *)
+            error "Unknown tool: $tool"
+            return 1
+            ;;
+    esac
 
     # No tool specified - disable all enabled tools
     local disabled_count=0
@@ -474,7 +493,7 @@ disable_notifications_global() {
     for t in claude codex gemini omp; do
         if is_tool_enabled "$t"; then
             if disable_single_tool "$t" "quiet"; then
-                ((disabled_count++))
+                ((++disabled_count))
             fi
         fi
     done
@@ -514,6 +533,15 @@ disable_single_tool() {
     return 0
 }
 
+show_configured_tool_status() {
+    local tool="$1" display_name="$2"
+    if [[ -f "$HOME/.claude/notifications/disabled.$tool" ]]; then
+        echo "  ${MUTE} $display_name: ${YELLOW}MUTED${RESET}"
+    else
+        echo "  ${CHECK_MARK} $display_name: ${GREEN}ENABLED${RESET}"
+    fi
+}
+
 # Show current status
 show_status() {
     local arg
@@ -547,7 +575,7 @@ show_status() {
             echo "     Current hooks still point to an older claude-notify-style configuration"
             echo "     Run: ${CYAN}cn on claude${RESET}"
         elif is_tool_enabled "claude"; then
-            echo "  ${CHECK_MARK} Claude Code: ${GREEN}ENABLED${RESET}"
+            show_configured_tool_status claude "Claude Code"
             echo "     Config: $GLOBAL_SETTINGS_FILE"
         else
             echo "  ${MUTE} Claude Code: ${DIM}DISABLED${RESET}"
@@ -559,7 +587,7 @@ show_status() {
     # Codex
     if is_tool_installed "codex"; then
         if is_tool_enabled "codex"; then
-            echo "  ${CHECK_MARK} Codex: ${GREEN}ENABLED${RESET}"
+            show_configured_tool_status codex Codex
             echo "     Config: $CODEX_CONFIG_FILE"
             echo "     Events: completion-only via Codex notify payloads"
         else
@@ -572,7 +600,7 @@ show_status() {
     # Gemini CLI
     if is_tool_installed "gemini"; then
         if is_tool_enabled "gemini"; then
-            echo "  ${CHECK_MARK} Gemini CLI: ${GREEN}ENABLED${RESET}"
+            show_configured_tool_status gemini "Gemini CLI"
             echo "     Config: $GEMINI_SETTINGS_FILE"
         else
             echo "  ${MUTE} Gemini CLI: ${DIM}DISABLED${RESET}"
@@ -584,7 +612,7 @@ show_status() {
     # Oh My Pi (omp)
     if is_tool_installed "omp"; then
         if is_tool_enabled "omp"; then
-            echo "  ${CHECK_MARK} omp: ${GREEN}ENABLED${RESET}"
+            show_configured_tool_status omp omp
             echo "     Config: $OMP_EXTENSION_FILE"
             echo "     Events: completion via agent_end extension"
         else
