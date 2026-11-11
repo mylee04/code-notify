@@ -24,7 +24,7 @@ cn update
 code-notify version
 ```
 
-**v1.13.1 maintenance fix:** `cn status` no longer reports `REPAIR NEEDED` for the current Claude `ask_user` hook format, while genuine legacy hooks remain repairable.
+**v1.13.2 maintenance update:** Native Windows now supports `cn alerts` for Claude notification types. On macOS and Linux, enabling or disabling one tool preserves the mute state of other tools.
 
 Usage alerts remain opt-in: start with `cn usage setup --watch`. Existing enabled usage configs without a `reset_reminders` setting use the default reminder schedule. After updating, restart any running watcher with `cn usage watch restart` (include your provider and interval options if customized).
 
@@ -37,7 +37,7 @@ Voice samples: [Daily reset](https://cdn.jsdelivr.net/gh/mylee04/code-notify@mai
   <img src="assets/multi-tools-support-02.png" width="48%" alt="All tools enabled"/>
 </p>
 
-[![Version](https://img.shields.io/badge/version-1.13.1-blue.svg)](https://github.com/mylee04/code-notify/releases)
+[![Version](https://img.shields.io/badge/version-1.13.2-blue.svg)](https://github.com/mylee04/code-notify/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![macOS](https://img.shields.io/badge/macOS-supported-green.svg)](https://www.apple.com/macos)
 [![Linux](https://img.shields.io/badge/Linux-supported-green.svg)](https://www.linux.org/)
@@ -45,11 +45,10 @@ Voice samples: [Daily reset](https://cdn.jsdelivr.net/gh/mylee04/code-notify@mai
 
 ---
 
-## What's New in v1.13.1
+## What's New in v1.13.2
 
-- **Accurate Claude status**: Current `ask_user` hooks using `PreToolUse claude` are recognized as enabled instead of legacy
-- **No repair loop**: Re-running `cn on claude` is no longer suggested for a configuration Code-Notify just installed
-- **Legacy compatibility retained**: Older `PreToolUse` commands without the Claude tool argument are still detected for repair
+- **Windows alert configuration**: Use `cn alerts` to view, add, remove, or reset Claude notification types. Changes apply immediately to enabled global Claude hooks.
+- **Per-tool mute controls**: On macOS and Linux, `cn on codex` preserves Claude's mute state, and `cn off codex` mutes only Codex.
 
 ---
 
